@@ -217,11 +217,14 @@ export function createApp(dependencies: Dependencies = {}) {
 
       if (path === "/verify") {
         const eventKey = normalizedKey(input.eventKey);
-        if (!eventKey || !object(input.idkitResult)) return fail("invalid_verification", 400);
-        const row = await env.DB.prepare("SELECT * FROM challenges WHERE event_id = ? AND event_key = ? AND bound_at IS NOT NULL ORDER BY bound_at DESC LIMIT 1")
-          .bind(eventId, eventKey).first<BoundChallenge>();
+        const challenge = typeof input.challenge === "string" && EVENT_ID.test(input.challenge) ? input.challenge.toLowerCase() : null;
+        if (!eventKey || !challenge || !object(input.idkitResult)) return fail("invalid_verification", 400);
+        const row = await env.DB.prepare("SELECT * FROM challenges WHERE event_id = ? AND event_key = ? AND challenge = ? AND bound_at IS NOT NULL")
+          .bind(eventId, eventKey, challenge).first<BoundChallenge>();
         if (!row) return fail("unbound_key", 409);
         if (row.expires_at <= now()) return fail("expired_challenge", 410);
+        const used = await env.DB.prepare("SELECT 1 FROM credentials WHERE challenge = ?").bind(challenge).first();
+        if (used) return fail("used_challenge", 409);
         const result = input.idkitResult;
         const responses = result.responses;
         if (result.protocol_version !== "4.0" || result.action !== env.WORLD_ACTION || result.environment !== env.WORLD_ENV ||
@@ -242,6 +245,7 @@ export function createApp(dependencies: Dependencies = {}) {
           return fail("world_verification_failed", verified.status >= 500 ? 502 : 400);
         }
         if (!env.ATTESTATION_KEY) return fail("attestation_key_unconfigured", 503);
+        if (row.expires_at <= now()) return fail("expired_challenge", 410);
         const unsigned = {
           eventKey, eventKeyAddress: row.event_key_address!, nullifierHash: nullifier,
           verifiedAt: new Date(now()).toISOString(), challenge: row.challenge,

@@ -22,11 +22,11 @@ The test suite runs against a local Miniflare D1 database and an injected World 
 | `POST /challenge` | `{eventId}` | `{challenge, expiresAt}`; random 32 bytes, single use, 10 minutes |
 | `POST /rp-context` | `{eventId}` | `{rp_id, nonce, created_at, expires_at, signature}` for IDKit 4 |
 | `POST /bind` | `{eventId, eventKey, challenge, appSignature}` | `{signal}` after recovering the purpose `0x01` signer |
-| `POST /verify` | `{eventId, eventKey, idkitResult}` | `{credential}` after World verification and the first verified nullifier wins |
+| `POST /verify` | `{eventId, eventKey, challenge, idkitResult}` | `{credential}` after World verification and the first verified nullifier wins |
 | `GET /credentials?eventId=…` | query parameter | `{eventId, credentials:[…]}` |
 | `GET /config?eventId=…` | query parameter | public IDKit configuration for the page |
 
-The event ID is 32-byte hex; the event key is a compressed 33-byte secp256k1 public key. `/bind` computes `signal = keccak256(eventId || eventKeyAddress || challenge)` and returns those raw 32 bytes as hex. IDKit applies `hashSignal(signal)` to form `responses[0].signal_hash`; `/verify` compares it before contacting World. The purpose `0x01` message and digest must match [Mizar's golden vector](https://github.com/levarac/mizar/blob/main/docs/design/test-vectors/app-signature-v1.json). The test suite includes an exact copy at `test/fixtures/app-signature-v1.json`.
+The event ID is 32-byte hex; the event key is a compressed 33-byte secp256k1 public key. `/bind` computes `signal = keccak256(eventId || eventKeyAddress || challenge)` and returns those raw 32 bytes as hex. IDKit applies `hashSignal(signal)` to form `responses[0].signal_hash`; `/verify` looks up that exact bound challenge and compares the signal before contacting World. This preserves a valid proof from tab A even if the same key binds a later challenge in tab B. The purpose `0x01` message and digest must match [Mizar's golden vector](https://github.com/levarac/mizar/blob/main/docs/design/test-vectors/app-signature-v1.json). The test suite includes an exact copy at `test/fixtures/app-signature-v1.json`.
 
 The World result is forwarded unchanged to `POST https://developer.world.org/api/v4/verify/{rp_id}`. This implementation accepts one World ID 4.0 `proof_of_human` uniqueness response, requires a successful matching result from World, checks action and environment, then inserts into D1 with unique `(event_id, nullifier_hash)` and `(event_id, event_key)` constraints. Nullifiers are normalized as 256-bit hex before comparison and storage. A failed proof never creates a credential.
 

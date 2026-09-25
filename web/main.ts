@@ -119,7 +119,7 @@ async function verifyWithWorld(check: PendingCheck) {
   const completion = await request.pollUntilCompletion();
   if (!completion.success) throw new Error("World ID verification was not completed.");
   const { credential } = await post<{ credential: { eventKeyAddress: string } }>("/verify", {
-    eventId: check.eventId, eventKey: check.eventKey, idkitResult: completion.result,
+    eventId: check.eventId, eventKey: check.eventKey, challenge: check.challenge, idkitResult: completion.result,
   });
   localStorage.removeItem(storageKey(check.state));
   worldStep.hidden = true;

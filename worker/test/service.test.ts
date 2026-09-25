@@ -105,10 +105,12 @@ describe("human-check endpoints", () => {
   });
 
   it("returns a signed credential and publishes exactly the accepted key", async () => {
-    const { response } = await bind();
+    const { challenge, response } = await bind();
     const { signal } = await response.json() as { signal: string };
     const result = idkit(signal);
-    const verified = await post("/verify", { eventId, eventKey, idkitResult: result });
+    expect((await post("/verify", { eventId, eventKey, idkitResult: result })).status).toBe(400);
+    expect(verifyMock).not.toHaveBeenCalled();
+    const verified = await post("/verify", { eventId, eventKey, challenge, idkitResult: result });
     expect(verified.status).toBe(200);
     const credential = (await verified.json() as { credential: Record<string, unknown> }).credential;
     expect(verifyMock).toHaveBeenCalledWith(result, "rp_FAKE_TEST");
@@ -129,21 +131,43 @@ describe("human-check endpoints", () => {
       toBytes(`alcor/credential/v1\0${JSON.stringify(unsigned)}`),
       hexToBytes(attestation.publicKey as Hex),
     )).toBe(true);
+    expect((await post("/verify", { eventId, eventKey, challenge, idkitResult: result })).status).toBe(409);
+    expect(verifyMock).toHaveBeenCalledTimes(1);
   });
 
   it("rejects wrong signal before calling World and invalid World proof", async () => {
-    const { response } = await bind();
+    const { challenge, response } = await bind();
     const { signal } = await response.json() as { signal: string };
-    expect((await post("/verify", { eventId, eventKey, idkitResult: idkit(signal, failures.wrongSignal) })).status).toBe(400);
+    expect((await post("/verify", { eventId, eventKey, challenge, idkitResult: idkit(signal, failures.wrongSignal) })).status).toBe(400);
     expect(verifyMock).not.toHaveBeenCalled();
     verifyMock.mockResolvedValueOnce(failures.invalidProof);
-    expect((await post("/verify", { eventId, eventKey, idkitResult: idkit(signal) })).status).toBe(400);
+    expect((await post("/verify", { eventId, eventKey, challenge, idkitResult: idkit(signal) })).status).toBe(400);
+  });
+
+  it("verifies challenge A after the same key has also bound challenge B", async () => {
+    const first = await bind();
+    const signalA = (await first.response.json() as { signal: string }).signal;
+    clock += 1_000;
+    const challengeB = (await (await post("/challenge", { eventId })).json() as { challenge: string }).challenge;
+    const signatureB = secp256k1.sign(
+      hexToBytes(bindingDigest(eventId, challengeB)),
+      hexToBytes(vector.testPrivateKey as Hex),
+      { lowS: true },
+    );
+    const appSignatureB = `${toHex(signatureB.toCompactRawBytes())}${(27 + signatureB.recovery).toString(16)}`;
+    const boundB = await post("/bind", { eventId, eventKey, challenge: challengeB, appSignature: appSignatureB });
+    expect(boundB.status).toBe(200);
+    expect((await boundB.json() as { signal: string }).signal).not.toBe(signalA);
+
+    const result = await post("/verify", { eventId, eventKey, challenge: first.challenge, idkitResult: idkit(signalA) });
+    expect(result.status).toBe(200);
+    expect((await result.json() as { credential: { challenge: string } }).credential.challenge).toBe(first.challenge);
   });
 
   it("rejects a second key for the same nullifier and expired verification", async () => {
-    const { response } = await bind();
+    const { challenge, response } = await bind();
     const { signal } = await response.json() as { signal: string };
-    expect((await post("/verify", { eventId, eventKey, idkitResult: idkit(signal) })).status).toBe(200);
+    expect((await post("/verify", { eventId, eventKey, challenge, idkitResult: idkit(signal) })).status).toBe(200);
     const secondChallenge = (await (await post("/challenge", { eventId })).json() as { challenge: string }).challenge;
     const digest = bindingDigest(eventId, secondChallenge);
     const signed = secp256k1.sign(hexToBytes(digest), secondTestKey, { lowS: true });
@@ -151,9 +175,9 @@ describe("human-check endpoints", () => {
     const secondBind = await post("/bind", { eventId, eventKey: secondKey, challenge: secondChallenge, appSignature: secondSignature });
     expect(secondBind.status).toBe(200);
     const secondSignal = (await secondBind.json() as { signal: string }).signal;
-    expect((await post("/verify", { eventId, eventKey: secondKey, idkitResult: idkit(secondSignal, failures.duplicateNullifier) })).status).toBe(409);
+    expect((await post("/verify", { eventId, eventKey: secondKey, challenge: secondChallenge, idkitResult: idkit(secondSignal, failures.duplicateNullifier) })).status).toBe(409);
     clock += failures.expiredChallenge.advanceMs;
-    expect((await post("/verify", { eventId, eventKey, idkitResult: idkit(signal) })).status).toBe(410);
+    expect((await post("/verify", { eventId, eventKey, challenge, idkitResult: idkit(signal) })).status).toBe(410);
   });
 
   it("returns public IDKit configuration and a backend RP signature without exposing keys", async () => {
