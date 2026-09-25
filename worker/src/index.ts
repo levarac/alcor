@@ -10,7 +10,7 @@ export interface Env {
   WORLD_RP_ID: string;
   WORLD_ACTION: string;
   WORLD_ENV: "staging" | "production";
-  RP_SIGNING_KEY?: Hex;
+  WORLD_RP_SIGNING_KEY?: Hex;
   ATTESTATION_KEY?: Hex;
 }
 
@@ -188,11 +188,11 @@ export function createApp(dependencies: Dependencies = {}) {
         return json({ challenge, expiresAt: new Date(expiresAt).toISOString() });
       }
 
-      if (path === "/rp-signature") {
-        if (!env.RP_SIGNING_KEY) return fail("rp_signing_key_unconfigured", 503);
+      if (path === "/rp-context") {
+        if (!env.WORLD_RP_SIGNING_KEY) return fail("rp_signing_key_unconfigured", 503);
         try {
-          const signed = signRequest({ signingKeyHex: env.RP_SIGNING_KEY, action: env.WORLD_ACTION });
-          return json({ sig: signed.sig, nonce: signed.nonce, created_at: signed.createdAt, expires_at: signed.expiresAt });
+          const signed = signRequest({ signingKeyHex: env.WORLD_RP_SIGNING_KEY, action: env.WORLD_ACTION });
+          return json({ rp_id: env.WORLD_RP_ID, signature: signed.sig, nonce: signed.nonce, created_at: signed.createdAt, expires_at: signed.expiresAt });
         } catch { return fail("rp_signing_failed", 503); }
       }
 

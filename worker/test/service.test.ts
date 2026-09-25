@@ -59,7 +59,7 @@ beforeEach(async () => {
     WORLD_RP_ID: "rp_FAKE_TEST",
     WORLD_ACTION: "mizar-996ab4d7",
     WORLD_ENV: "staging",
-    RP_SIGNING_KEY: testSeed,
+    WORLD_RP_SIGNING_KEY: testSeed,
     ATTESTATION_KEY: testSeed,
   };
   verifyMock = vi.fn(async () => ({ status: 200, body: fixture.worldResponse }));
@@ -151,10 +151,11 @@ describe("human-check endpoints", () => {
     const config = await app.fetch(new Request(`http://localhost/config?eventId=${eventId}`), env);
     expect(config.status).toBe(200);
     expect(await config.json()).toEqual({ appId: "app_FAKE_TEST", rpId: "rp_FAKE_TEST", action: "mizar-996ab4d7", environment: "staging" });
-    const signed = await post("/rp-signature", { eventId });
+    const signed = await post("/rp-context", { eventId });
     expect(signed.status).toBe(200);
     const body = await signed.json() as Record<string, unknown>;
-    expect(body).toHaveProperty("sig");
+    expect(body).toHaveProperty("signature");
+    expect(body.rp_id).toBe("rp_FAKE_TEST");
     expect(body).toHaveProperty("nonce");
     expect(body).not.toHaveProperty("signingKeyHex");
   });
