@@ -7,6 +7,7 @@ import { secp256k1 } from "@noble/curves/secp256k1";
 import { createApp, bindingDigest, eventKeyAddress, type Env } from "../src/index";
 import vector from "./fixtures/app-signature-v1.json";
 import fixture from "./fixtures/world-success-v4.json";
+import signedFixture from "./fixtures/signed-credentials-v1.json";
 import schema from "../schema.sql?raw";
 
 const now = Date.parse("2026-09-26T00:00:00.000Z");
@@ -119,7 +120,14 @@ describe("human-check endpoints", () => {
     expect(attestation.signature).toMatch(/^0x[0-9a-f]{128}$/);
     const list = await app.fetch(new Request(`http://localhost/credentials?eventId=${eventId}`), env);
     expect(list.status).toBe(200);
-    expect(await list.json()).toEqual({ eventId, credentials: [credential] });
+    expect(await list.json()).toEqual(signedFixture.response);
+    expect(signedFixture.testAttestationSeed).toBe(testSeed);
+    const unsigned = Object.fromEntries(Object.entries(credential).filter(([key]) => key !== "attestation").sort(([a], [b]) => a.localeCompare(b)));
+    expect(ed25519.verify(
+      hexToBytes(attestation.signature as Hex),
+      toBytes(`alcor/credential/v1\0${JSON.stringify(unsigned)}`),
+      hexToBytes(attestation.publicKey as Hex),
+    )).toBe(true);
   });
 
   it("rejects wrong signal before calling World and invalid World proof", async () => {
