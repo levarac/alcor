@@ -12,7 +12,7 @@ Built during ETHGlobal Tokyo 2026 (hacking started 2026-09-25 21:00 JST). Work i
 
 This repository was created after the hackathon started, and everything in it was written during the event. It builds on pre-existing work by the same team, which is not part of this repository:
 
-- A mobile app that records and signs BLE proximity observations between attendees. The claim flow is a web page so that it does not require changes inside that app.
+- A mobile app that records and signs BLE proximity observations between attendees. The check runs on a web page; the app only adds a small entry point that signs a typed request with the attendee's event key, and that change is disclosed separately.
 - An operator service and Solidity contracts on Sepolia that anchor the observation evidence Mizar evaluates.
 
 ## License
