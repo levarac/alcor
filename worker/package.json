@@ -1,0 +1,23 @@
+{
+  "name": "@levarac/alcor-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "dev": "wrangler dev --local"
+  },
+  "dependencies": {
+    "@noble/curves": "1.9.7",
+    "@worldcoin/idkit-core": "4.3.0",
+    "viem": "2.56.9"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20260925.2",
+    "miniflare": "3.20250718.3",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4",
+    "wrangler": "^4.40.0"
+  },
+  "packageManager": "pnpm@10.17.1"
+}
