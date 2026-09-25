@@ -8,7 +8,8 @@ import { createApp, bindingDigest, eventKeyAddress, type Env } from "../src/inde
 import vector from "./fixtures/app-signature-v1.json";
 import fixture from "./fixtures/world-success-v4.json";
 import signedFixture from "./fixtures/signed-credentials-v1.json";
-import schema from "../schema.sql?raw";
+import failures from "./fixtures/world-failures-v4.json";
+import schema from "../migrations/0001_initial.sql?raw";
 
 const now = Date.parse("2026-09-26T00:00:00.000Z");
 const eventId = vector.eventId;
@@ -99,7 +100,7 @@ describe("human-check endpoints", () => {
   it("rejects an invalid signature and an expired challenge", async () => {
     const challenge = (await (await post("/challenge", { eventId })).json() as { challenge: string }).challenge;
     expect((await post("/bind", { eventId, eventKey, challenge, appSignature: `0x${"00".repeat(65)}` })).status).toBe(400);
-    clock += 600_001;
+    clock += failures.expiredChallenge.advanceMs;
     expect((await post("/bind", { eventId, eventKey, challenge, appSignature: vector.humanCheckBinding.signature })).status).toBe(410);
   });
 
@@ -133,9 +134,9 @@ describe("human-check endpoints", () => {
   it("rejects wrong signal before calling World and invalid World proof", async () => {
     const { response } = await bind();
     const { signal } = await response.json() as { signal: string };
-    expect((await post("/verify", { eventId, eventKey, idkitResult: idkit(signal, { signal_hash: "0x0" }) })).status).toBe(400);
+    expect((await post("/verify", { eventId, eventKey, idkitResult: idkit(signal, failures.wrongSignal) })).status).toBe(400);
     expect(verifyMock).not.toHaveBeenCalled();
-    verifyMock.mockResolvedValueOnce({ status: 400, body: { success: false, code: "invalid_proof", detail: "Invalid proof" } });
+    verifyMock.mockResolvedValueOnce(failures.invalidProof);
     expect((await post("/verify", { eventId, eventKey, idkitResult: idkit(signal) })).status).toBe(400);
   });
 
@@ -150,8 +151,8 @@ describe("human-check endpoints", () => {
     const secondBind = await post("/bind", { eventId, eventKey: secondKey, challenge: secondChallenge, appSignature: secondSignature });
     expect(secondBind.status).toBe(200);
     const secondSignal = (await secondBind.json() as { signal: string }).signal;
-    expect((await post("/verify", { eventId, eventKey: secondKey, idkitResult: idkit(secondSignal) })).status).toBe(409);
-    clock += 600_001;
+    expect((await post("/verify", { eventId, eventKey: secondKey, idkitResult: idkit(secondSignal, failures.duplicateNullifier) })).status).toBe(409);
+    clock += failures.expiredChallenge.advanceMs;
     expect((await post("/verify", { eventId, eventKey, idkitResult: idkit(signal) })).status).toBe(410);
   });
 

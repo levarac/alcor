@@ -1,0 +1,12 @@
+{
+  "description": "Doc-shaped local mocks only; no live World proof or Portal registration was used.",
+  "invalidProof": {
+    "status": 400,
+    "body": { "success": false, "code": "invalid_proof", "detail": "Invalid proof" }
+  },
+  "wrongSignal": { "signal_hash": "0x0" },
+  "duplicateNullifier": {
+    "nullifier": "0x04e5f60000000000000000000000000000000000000000000000000000000001"
+  },
+  "expiredChallenge": { "advanceMs": 600001 }
+}
