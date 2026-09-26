@@ -1,8 +1,14 @@
 # Alcor
 
-Alcor runs per-claimant checks for [Mizar](https://github.com/levarac/mizar) participation claims.
+Alcor is the human-check service of **Levarac**, built at ETHGlobal Tokyo 2026. Levarac is the team and project name used for the event and its Showcase listing. Levarac comprises:
 
-Mizar decides which mutual observations count as participation and settles claims in batch. Alcor handles the individual at join time: a join page the participant opens when joining the event, and a verification Worker that binds the attendee's event key to one World ID-verified person and publishes a signed credential list. Mizar's evaluator counts only credentialed keys, so one person running several devices cannot confirm their own observations. The claim itself happens later on Mizar's claim page.
+- **Parallax** — protocol for signed BLE observations and anchored evidence; pre-existing before the hackathon; private repository.
+- **[Beid](https://github.com/levarac/beid)** — attendee app that records and signs BLE observations; pre-existing before the hackathon; public repository.
+- **[Barnard](https://github.com/levarac/barnard)** — BLE sensing library and SDK; pre-existing before the hackathon; public repository.
+- **[Mizar](https://github.com/levarac/mizar)** — participation-rule evaluator and EAS claim system; built at ETHGlobal Tokyo 2026; public repository.
+- **[Alcor](https://github.com/levarac/alcor)** — human-check service and join page; built at ETHGlobal Tokyo 2026; public repository.
+
+Mizar evaluates mutual observations against a published participation rule and batches the results into a snapshot root. Alcor handles the individual at join time: a join page the participant opens when joining the event, and a verification service that binds the attendee's Beid event key to one World ID-verified person and publishes a signed credential list. Mizar's evaluator counts only Alcor-credentialed keys, with one event key per verified person. Each claim happens individually later on Mizar's claim page.
 
 ## Join page
 
@@ -16,8 +22,9 @@ Built during ETHGlobal Tokyo 2026 (hacking started 2026-09-25 21:00 JST). Work i
 
 This repository was created after the hackathon started, and everything in it was written during the event. It builds on pre-existing work by the same team, which is not part of this repository:
 
-- A mobile app that records and signs BLE proximity observations between attendees. The check runs on a web page; the app only adds a small entry point that signs a typed request with the attendee's event key, and that change is disclosed separately.
-- An operator service and Solidity contracts on Sepolia that anchor the observation evidence Mizar evaluates.
+- **[Beid](https://github.com/levarac/beid)**, the attendee app that records and signs BLE proximity observations. Its repository is public. The Alcor check runs on a web page. The hackathon changes to Beid, a typed event-key signing entry point and a two-iPhone demo configuration, are on [Beid's `demo/ethtokyo-two-iphone` branch](https://github.com/levarac/beid/tree/demo/ethtokyo-two-iphone) at head [5a848fb](https://github.com/levarac/beid/commit/5a848fb1d07bae01ec5a9b5550f0e13bca6fdf6e).
+- **Parallax**, the protocol whose operator service and Solidity contracts on Sepolia anchor the observation evidence Mizar evaluates. Its repository is private.
+- **[Barnard](https://github.com/levarac/barnard)**, the public BLE sensing library and SDK used by Beid.
 
 ## License
 
