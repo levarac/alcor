@@ -6,6 +6,7 @@ import { concat, getAddress, hexToBytes, keccak256, recoverAddress, sha256, toBy
 
 export interface Env {
   DB: D1Database;
+  ASSETS?: { fetch(request: Request): Promise<Response> };
   WORLD_APP_ID: string;
   WORLD_RP_ID: string;
   WORLD_ACTION: string;
@@ -53,6 +54,7 @@ const SIGNATURE = /^0x[0-9a-fA-F]{130}$/;
 const NULLIFIER = /^0x[0-9a-fA-F]{1,64}$/;
 const DOMAIN = toBytes("beid/event-key-sign/v1");
 const TEN_MINUTES = 600_000;
+const API_PATHS = new Set(["/challenge", "/rp-context", "/bind", "/verify", "/credentials", "/config"]);
 const CURVE_ORDER = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n;
 
 function json(body: unknown, status = 200): Response {
@@ -157,6 +159,12 @@ export function createApp(dependencies: Dependencies = {}) {
     async fetch(request: Request, env: Env): Promise<Response> {
       const url = new URL(request.url);
       const path = url.pathname;
+      if (!API_PATHS.has(path)) {
+        if ((request.method === "GET" || request.method === "HEAD") && env.ASSETS) {
+          return env.ASSETS.fetch(request);
+        }
+        return fail("not_found", 404);
+      }
       if (path === "/credentials" && request.method === "GET") {
         const eventId = normalizedEvent(url.searchParams.get("eventId"), env);
         if (!eventId) return fail("invalid_event", 400);
