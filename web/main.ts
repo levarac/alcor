@@ -21,6 +21,7 @@ const startLabel = document.querySelector<HTMLElement>("#start-label")!;
 const stateLabel = document.querySelector<HTMLElement>("#state-label-text")!;
 const pendingNote = document.querySelector<HTMLElement>("#pending-note")!;
 const completionNote = document.querySelector<HTMLElement>("#completion-note")!;
+const alreadyNote = document.querySelector<HTMLElement>("#already-note")!;
 const eventEditor = document.querySelector<HTMLDetailsElement>("#event-editor")!;
 const challengeExpiry = document.querySelector<HTMLElement>("#challenge-expiry")!;
 
@@ -33,7 +34,7 @@ const screens: Record<Screen, ScreenContent> = {
   checking: { label: "Signature received", title: "Checking your event key.", description: "Your signature is being checked before World ID verification begins.", step: 2 },
   world: { label: "Waiting for World ID", title: "One person. One World ID.", description: "Complete the human check in World App, then return here for your event credential.", step: 2 },
   verified: { label: "Verified · Credential issued", title: "You’re ready for this event.", description: "Your World ID is linked to the event key shown here, and its credential has been issued.", step: 3, tone: "success" },
-  already: { label: "A credential already exists", title: "Already linked for this event.", description: "One person can link only one key per event; return to the app and use the key you first verified.", step: 3, tone: "error" },
+  already: { label: "A credential already exists", title: "Already linked for this event.", description: "This World ID or this event key already has a credential for this event.", step: 3, tone: "error" },
   expired: { label: "Challenge expired", title: "Let’s start a fresh check.", description: "This signing request has expired; start a new check and sign the new request in the app.", step: 1, tone: "error" },
   "world-failed": { label: "World ID check unsuccessful", title: "We couldn’t verify your World ID.", description: "World ID verification did not complete; start a new check and follow the prompts in World App.", step: 2, tone: "error" },
   unavailable: { label: "Service unavailable", title: "Please try again later.", description: "The verification service could not be reached; try again later or contact the event organizer.", step: 2, tone: "error" },
@@ -89,10 +90,14 @@ function renderScreen(screen: Screen) {
   appStep.hidden = screen !== "waiting-app";
   worldStep.hidden = screen !== "world";
   const canStart = screen === "start" || (content.tone === "error" && screen !== "already");
-  startButton.hidden = !canStart;
-  startLabel.textContent = screen === "start" ? "Start human check" : screen === "unavailable" ? "Try again" : "Start a new check";
+  const waitingForApp = screen === "waiting-app";
+  startButton.hidden = !canStart && !waitingForApp;
+  startButton.classList.toggle("primary-action", !waitingForApp);
+  startButton.classList.toggle("secondary-action", waitingForApp);
+  startLabel.textContent = waitingForApp ? "Start again" : screen === "start" ? "Start human check" : screen === "unavailable" ? "Try again" : "Start a new check";
   pendingNote.hidden = screen !== "checking" && screen !== "issuing";
   completionNote.hidden = screen !== "verified";
+  alreadyNote.hidden = screen !== "already";
   keyCaption.textContent = screen === "verified" ? "Credentialed for this event." : screen === "already" ? "The key submitted for this check." : "The key you use for this event.";
   eventEditor.style.visibility = canStart ? "visible" : "hidden";
   if (!canStart) eventEditor.open = false;
