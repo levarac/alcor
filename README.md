@@ -22,7 +22,7 @@ Built during ETHGlobal Tokyo 2026 (hacking started 2026-09-25 21:00 JST). Work i
 
 This repository was created after the hackathon started, and everything in it was written during the event. It builds on pre-existing work by the same team, which is not part of this repository:
 
-- **[Beid](https://github.com/levarac/beid)**, the attendee app that records and signs BLE proximity observations. Its repository is public. The Alcor check runs on a web page; the typed signing entry point added to Beid is a hackathon integration change inside the pre-existing app.
+- **[Beid](https://github.com/levarac/beid)**, the attendee app that records and signs BLE proximity observations. Its repository is public. The Alcor check runs on a web page; the typed signing entry point on [Beid's `demo/ethtokyo-two-iphone` branch](https://github.com/levarac/beid/tree/demo/ethtokyo-two-iphone) is a hackathon integration change inside the pre-existing app.
 - **Parallax**, the protocol whose operator service and Solidity contracts on Sepolia anchor the observation evidence Mizar evaluates. Its repository is private.
 - **[Barnard](https://github.com/levarac/barnard)**, the public BLE sensing library and SDK used by Beid.
 
