@@ -39,7 +39,7 @@ Each credential contains `eventKey`, `eventKeyAddress`, `nullifierHash`, `verifi
 The deployment uses a staging World app on a live Cloudflare Worker:
 
 - Worker: `alcor-human-check`; page and callback origin: `https://alcor-human-check.levarac.workers.dev/`.
-- D1 database: `alcor-human-check`; replace `REPLACE_WITH_PRODUCTION_D1_DATABASE_ID` in `wrangler.toml` with the ID returned by creation.
+- D1 database: `alcor-human-check`, ID `0b193582-d696-417e-9b80-37c51327be7d` (APAC), configured in `wrangler.toml`.
 - Event: `0xccb8770a524f4145e04b3c97d8ffe2f7301ce65b4041d80e419bafdd803b2ee1` (`parallax-sepolia-20260926-demo`).
 - Event window: `2026-09-26T05:30Z` to `2026-09-27T15:00Z`. The registry/evaluator owns this window; the Worker validates the event action and ten-minute challenges.
 - Plain variables in `wrangler.toml`: `WORLD_ENV=staging`, `WORLD_ACTION=mizar-ccb8770a`. The older action in a local secrets file must not override this action.
@@ -56,9 +56,9 @@ The public key was derived from the maintainer-provided 32-byte seed. Only this 
 
 Before deployment, confirm the Portal action `mizar-ccb8770a` is active for the staging app, allows the intended proof-of-human credential and one verification per human, and permits the HTTPS origin above where applicable. The mobile purpose `0x01` callback must use this same origin. Do not treat a successful local test or deployment as a real World ID verification.
 
-### Create D1
+### Create D1 for a new environment
 
-Install both packages using the local-verification commands above. Run this from `worker/` in zsh. It creates a live database and must only be run by the deployment operator. Credentials stay inside a tracing-disabled subshell and are passed to Wrangler as command-scoped environment variables.
+The demo database already exists; reuse its configured ID and skip creation when updating this deployment. For a new environment, install both packages using the local-verification commands above and run this from `worker/` in zsh. It creates a live database and must only be run by the deployment operator. Credentials stay inside a tracing-disabled subshell and are passed to Wrangler as command-scoped environment variables.
 
 ```zsh
 (
@@ -73,11 +73,11 @@ Install both packages using the local-verification commands above. Run this from
 )
 ```
 
-Copy the returned `database_id` into `wrangler.toml`, replacing only `REPLACE_WITH_PRODUCTION_D1_DATABASE_ID`. Keep the `DB` binding and `alcor-human-check` database name. If a previous attempt created the database, obtain its existing ID instead of creating another database.
+For a newly created database, copy the returned `database_id` into `wrangler.toml`. Keep the `DB` binding and matching database name. If a previous attempt created the database, obtain its existing ID instead of creating another database.
 
 ### Apply migrations, upload bindings, and deploy
 
-Run from `worker/` after replacing the database ID. The first secret upload may prompt to create the named Worker if it does not exist yet; confirm only `alcor-human-check`. All four bindings must succeed before the final deployment. No secret values are passed as CLI arguments or written to temporary files.
+Run from `worker/` with the intended database ID configured. With piped stdin, the first secret upload automatically creates a draft Worker without prompting if the named Worker does not exist yet; check that the configured name is `alcor-human-check` before running it. All four bindings must succeed before the final deployment. No secret values are passed as CLI arguments or written to temporary files.
 
 ```zsh
 (
@@ -118,17 +118,21 @@ Retain the deployed version ID from Wrangler's output and the D1 ID from creatio
 
 ### Live smoke checks
 
-These are read-only requests. Run after deployment:
+Run after deployment. The GET requests read the page and public configuration; `POST /rp-context` generates a signed World ID request context without submitting a proof or creating a credential.
 
 ```sh
 curl --fail-with-body -sS -i 'https://alcor-human-check.levarac.workers.dev/'
 curl --fail-with-body -sS -i 'https://alcor-human-check.levarac.workers.dev/config?eventId=0xccb8770a524f4145e04b3c97d8ffe2f7301ce65b4041d80e419bafdd803b2ee1'
 curl --fail-with-body -sS -i 'https://alcor-human-check.levarac.workers.dev/credentials?eventId=0xccb8770a524f4145e04b3c97d8ffe2f7301ce65b4041d80e419bafdd803b2ee1'
+curl --fail-with-body -sS -i -X POST \
+  -H 'content-type: application/json' \
+  --data '{"eventId":"0xccb8770a524f4145e04b3c97d8ffe2f7301ce65b4041d80e419bafdd803b2ee1"}' \
+  'https://alcor-human-check.levarac.workers.dev/rp-context'
 curl -sS -i 'https://alcor-human-check.levarac.workers.dev/config?eventId=invalid'
 curl -sS -i 'https://alcor-human-check.levarac.workers.dev/missing.js'
 ```
 
-Expect 200 HTML with the join page and new event ID at `/`; 200 JSON containing the configured `appId`, `rpId`, action `mizar-ccb8770a`, and environment `staging` at `/config`; and 200 JSON with the exact event ID and a `credentials` array at `/credentials` (initially empty). Invalid event config must return 400 JSON; missing assets must return 404. Open the join page in a browser and confirm its bundled JavaScript and CSS load. A real staging proof, mobile callback, credential publication after verification, and evaluator signature verification remain separate end-to-end checks.
+Expect 200 HTML with the join page and new event ID at `/`; 200 JSON containing the configured `appId`, `rpId`, action `mizar-ccb8770a`, and environment `staging` at `/config`; and 200 JSON with the exact event ID and a `credentials` array at `/credentials` (initially empty). `POST /rp-context` must return 200 JSON with `rp_id` matching `/config`'s `rpId` and a nonempty `signature` (plus `nonce`, `created_at`, and `expires_at`). Invalid event config must return 400 JSON; missing assets must return 404. Open the join page in a browser and confirm its bundled JavaScript and CSS load. A real staging proof, mobile callback, credential publication after verification, and evaluator signature verification remain separate end-to-end checks.
 
 ## World source references
 

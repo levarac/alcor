@@ -22,5 +22,5 @@ WORLD_ENV = "staging"
 [[d1_databases]]
 binding = "DB"
 database_name = "alcor-human-check"
-database_id = "REPLACE_WITH_PRODUCTION_D1_DATABASE_ID"
+database_id = "0b193582-d696-417e-9b80-37c51327be7d"
 migrations_dir = "migrations"
