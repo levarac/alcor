@@ -39,10 +39,15 @@ async function post<T>(path: string, body: unknown): Promise<T> {
   const response = await fetch(path, {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
   });
-  const data = await response.json() as T & { error?: string };
+  const data = await response.json() as T & { error?: string; world_code?: unknown; world_result_codes?: unknown };
   if (!response.ok) {
     if (data.error === "world_unavailable") {
       throw new Error("World ID verification is currently unavailable. Please try again later or contact the event organizer.");
+    }
+    if (data.error === "world_verification_failed") {
+      const codes = [data.world_code, ...(Array.isArray(data.world_result_codes) ? data.world_result_codes : [])]
+        .filter((code): code is string => typeof code === "string" && code.length <= 64 && /^[a-z]+(?:_[a-z]+)*$/.test(code));
+      throw new Error(codes.length ? `${data.error}: ${codes.join(", ")}` : data.error);
     }
     throw new Error(data.error ?? `Request failed (${response.status})`);
   }

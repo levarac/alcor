@@ -123,6 +123,12 @@ function bindingSignal(eventId: Hex, address: string, challenge: string): Hex {
   return keccak256(concat([hexToBytes(eventId), hexToBytes(address as Hex), hexToBytes(challenge as Hex)]));
 }
 
+/** Only short snake_case codes without echoed sensitive values may reach clients. */
+function worldErrorCode(value: unknown, sensitive: unknown[]): string | null {
+  return typeof value === "string" && value.length <= 64 && /^[a-z]+(?:_[a-z]+)*$/.test(value) &&
+    diagnosticText(value, sensitive) === value ? value : null;
+}
+
 function normalizeNullifier(value: unknown): Hex | null {
   if (typeof value !== "string" || !NULLIFIER.test(value)) return null;
   return `0x${BigInt(value).toString(16).padStart(64, "0")}` as Hex;
@@ -282,15 +288,24 @@ export function createApp(dependencies: Dependencies = {}) {
             normalizeNullifier(world.results[0].nullifier) !== nullifier) {
           const sensitive = [responses, result.nonce, row, env.WORLD_STAGING_VERIFICATION_TOKEN,
             env.WORLD_RP_SIGNING_KEY, env.ATTESTATION_KEY];
+          const worldResults = object(world) && Array.isArray(world.results) ? world.results : [];
           console.error("World verification failed", {
             status: verified.status,
             code: diagnosticText(object(world) ? world.code : null, sensitive),
             detail: diagnosticText(object(world) ? world.detail : null, sensitive),
+            results: worldResults.map((item) => object(item)
+              ? { code: diagnosticText(item.code, sensitive), detail: diagnosticText(item.detail, sensitive) }
+              : null),
           });
           if (verified.status === 403 && object(world) && world.code === "environment_not_allowed") {
             return json({ error: "world_unavailable", reason: "environment_not_allowed" }, 503);
           }
-          return fail("world_verification_failed", verified.status >= 500 ? 502 : 400);
+          return json({
+            error: "world_verification_failed",
+            world_status: verified.status,
+            world_code: worldErrorCode(object(world) ? world.code : null, sensitive),
+            world_result_codes: worldResults.map((item) => worldErrorCode(object(item) ? item.code : null, sensitive)),
+          }, verified.status >= 500 ? 502 : 400);
         }
         if (!env.ATTESTATION_KEY) return fail("attestation_key_unconfigured", 503);
         if (row.expires_at <= now()) return fail("expired_challenge", 410);

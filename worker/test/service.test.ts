@@ -245,7 +245,8 @@ describe("World verification diagnostics and staging access", () => {
 
   it.each([
     [failures.environmentNotAllowed, 503, { error: "world_unavailable", reason: "environment_not_allowed" }],
-    [failures.invalidProof, 400, { error: "world_verification_failed" }],
+    [failures.invalidProof, 400, { error: "world_verification_failed", world_status: 400, world_code: "invalid_proof", world_result_codes: [] }],
+    [failures.allVerificationsFailed, 400, { error: "world_verification_failed", world_status: 400, world_code: "all_verifications_failed", world_result_codes: ["invalid_root"] }],
   ])("logs safe diagnostics for World response %j", async (failure, expectedStatus, expectedBody) => {
     const { signal, result, body } = await prepareVerification();
     fetchMock.mockResolvedValueOnce(Response.json(failure.body, { status: failure.status }));
@@ -274,13 +275,52 @@ describe("World verification diagnostics and staging access", () => {
       detail: `Invalid proof: ${sensitive.join(" ")}`,
       proof: result.responses[0].proof,
       token: stagingToken,
+      results: [{
+        code: "invalid_root",
+        detail: `Invalid root: ${sensitive.join(" ")}`,
+        proof: result.responses[0].proof,
+        nullifier: result.responses[0].nullifier,
+        token: stagingToken,
+      }],
     }, { status: 400 }));
-    expect((await post("/verify", body)).status).toBe(400);
+    const response = await post("/verify", body);
+    expect(response.status).toBe(400);
+    const responseBody = await response.json();
+    expect(responseBody).toEqual({ error: "world_verification_failed", world_status: 400,
+      world_code: "invalid_proof", world_result_codes: ["invalid_root"] });
     const logged = JSON.stringify(errorLog.mock.calls);
     expect(logged).toContain("invalid_proof");
     expect(logged).toContain("Invalid proof:");
     expect(logged).toContain("[redacted]");
-    for (const value of sensitive) expect(logged).not.toContain(value);
+    expect(errorLog.mock.calls[0][1]).toMatchObject({
+      results: [{ code: "invalid_root", detail: expect.stringContaining("Invalid root: [redacted]") }],
+    });
+    for (const value of sensitive) {
+      expect(logged).not.toContain(value);
+      expect(JSON.stringify(responseBody)).not.toContain(value);
+    }
+  });
+
+  it("withholds malformed codes and sensitive values that look like error enums", async () => {
+    env.WORLD_STAGING_VERIFICATION_TOKEN = "private_staging_token";
+    const { result, body } = await prepareVerification();
+    result.nonce = "private_nonce";
+    result.responses[0].proof = ["private_proof"];
+    const unsafeCodes = [env.WORLD_STAGING_VERIFICATION_TOKEN, result.nonce, ...result.responses[0].proof,
+      `invalid_${env.WORLD_STAGING_VERIFICATION_TOKEN}`, "Invalid proof", "invalid_root\n", "_", "invalid__root",
+      "x".repeat(65), 42, null, { code: "invalid_root" }];
+    fetchMock.mockResolvedValueOnce(Response.json({
+      code: env.WORLD_STAGING_VERIFICATION_TOKEN,
+      results: [...unsafeCodes.map(code => ({ code })), null, "invalid_root", { code: "invalid_root" }],
+    }, { status: 500 }));
+    const response = await post("/verify", body);
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({ error: "world_verification_failed", world_status: 500,
+      world_code: null, world_result_codes: [...unsafeCodes.map(() => null), null, null, "invalid_root"] });
+    const logged = JSON.stringify(errorLog.mock.calls);
+    for (const value of [env.WORLD_STAGING_VERIFICATION_TOKEN, result.nonce, ...result.responses[0].proof]) {
+      expect(logged).not.toContain(value);
+    }
   });
 });
 
