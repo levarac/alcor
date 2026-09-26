@@ -207,10 +207,20 @@ async function start() {
   } finally { startButton.disabled = false; }
 }
 
+// The app returns to the same tab with only the fragment changed, which is a
+// same-document navigation, so this also runs on hashchange and on a bfcache
+// restore. Each callback state is handled once.
+const handledCallbackStates = new Set<string>();
+
 async function finishFromCallback() {
   const fragment = new URLSearchParams(location.hash.slice(1));
   if (!fragment.has("st")) return;
   const state = fragment.get("st") ?? "";
+  if (handledCallbackStates.has(state)) {
+    history.replaceState(null, "", location.pathname + location.search);
+    return;
+  }
+  handledCallbackStates.add(state);
   const signature = fragment.get("sig") ?? "";
   const eventKey = fragment.get("k") ?? "";
   const address = fragment.get("a") ?? "";
@@ -308,5 +318,7 @@ if (import.meta.env.MODE === "preview") {
 } else {
   renderScreen("start");
   startButton.addEventListener("click", () => { void start(); });
+  window.addEventListener("hashchange", () => { void finishFromCallback(); });
+  window.addEventListener("pageshow", (event) => { if (event.persisted) void finishFromCallback(); });
   void finishFromCallback();
 }
