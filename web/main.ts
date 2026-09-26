@@ -254,6 +254,42 @@ async function verifyWithWorld(check: PendingCheck) {
 eventInput.addEventListener("input", updateEventPresentation);
 updateEventPresentation();
 
-renderScreen("start");
-startButton.addEventListener("click", () => { void start(); });
-void finishFromCallback();
+// The preview is selected at build time; a production URL cannot enable it.
+if (import.meta.env.MODE === "preview") {
+  const fakeAddress = "0x52908400098527886E0F7030069857D2E4169EE7";
+  const previewStates: Screen[] = ["start", "waiting-app", "checking", "world", "verified", "already", "expired", "world-failed", "unavailable", "issuing", "invalid-event", "invalid-callback"];
+  const controls = document.createElement("aside");
+  controls.className = "preview-controls";
+  controls.setAttribute("aria-label", "Preview controls");
+  const label = document.createElement("strong");
+  label.textContent = "Preview: fake data";
+  const select = document.createElement("select");
+  select.setAttribute("aria-label", "Preview state");
+  previewStates.forEach((state) => {
+    const option = document.createElement("option");
+    option.value = state;
+    option.textContent = screens[state].label;
+    select.append(option);
+  });
+  controls.append(label, select);
+  document.body.prepend(controls);
+  const showPreview = (state: Screen) => {
+    select.value = state;
+    showEventKey(["start", "waiting-app", "issuing", "invalid-event", "invalid-callback"].includes(state) ? "" : fakeAddress);
+    challengeExpiry.textContent = "Sign before 14:30 · Preview time";
+    renderScreen(state);
+  };
+  select.addEventListener("change", () => showPreview(select.value as Screen));
+  startButton.addEventListener("click", () => showPreview("waiting-app"));
+  appLink.addEventListener("click", (event) => { event.preventDefault(); showPreview("checking"); });
+  worldLink.addEventListener("click", (event) => { event.preventDefault(); showPreview("verified"); });
+  // An inert text QR cannot start a real verification request.
+  void QRCode.toDataURL("Preview: fake data. No verification request.", { margin: 2, width: 380 }).then((src) => { worldQr.src = src; });
+  worldQr.alt = "Preview QR code containing fake data, not a verification request";
+  const requested = new URLSearchParams(location.search).get("state") as Screen;
+  showPreview(previewStates.includes(requested) ? requested : "start");
+} else {
+  renderScreen("start");
+  startButton.addEventListener("click", () => { void start(); });
+  void finishFromCallback();
+}

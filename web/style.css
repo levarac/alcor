@@ -71,6 +71,9 @@ h2 { min-height: 116px; margin: 0; font-size: 47px; font-weight: 550; line-heigh
 .footer .square { width: 7px; height: 7px; background: #8b8b82; }
 .footer p { margin: 0; }
 .mobile-break { display: none; }
+.preview-controls { display: flex; align-items: center; justify-content: center; gap: 18px; padding: 10px 20px; border-bottom: 1px solid #111; background: #eeeecf; font-size: 14px; }
+.preview-controls strong { font-weight: 650; }
+.preview-controls select { max-width: 240px; padding: 5px; border: 1px solid #77776a; border-radius: 0; background: #FEFFFB; }
 @media (max-width: 1200px) {
   .shell { padding: 32px; }
   .layout { gap: 40px; grid-template-columns: 1fr 1.1fr; }
@@ -117,6 +120,8 @@ h2 { min-height: 116px; margin: 0; font-size: 47px; font-weight: 550; line-heigh
   .panel-footnote { padding: 17px 22px; font-size: 13px; }
   .footer { align-items: baseline; margin-top: 26px; font-size: 13px; }
   .mobile-break { display: block; }
+  .preview-controls { flex-wrap: wrap; justify-content: space-between; gap: 7px; padding: 10px 20px; font-size: 12px; }
+  .preview-controls select { width: 170px; }
 }
 @media (prefers-reduced-motion: no-preference) {
   .primary-action { transition: background-color 120ms ease; }
