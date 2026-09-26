@@ -4,6 +4,11 @@
     "status": 400,
     "body": { "success": false, "code": "invalid_proof", "detail": "Invalid proof" }
   },
+  "allVerificationsFailed": {
+    "status": 400,
+    "body": { "success": false, "code": "all_verifications_failed", "detail": "Verification failed for all proofs.",
+      "results": [{ "identifier": "proof_of_human", "success": false, "code": "invalid_root", "detail": "The Merkle root is not valid." }] }
+  },
   "environmentNotAllowed": {
     "status": 403,
     "body": { "success": false, "code": "environment_not_allowed", "detail": "Staging verification window is not open" }
