@@ -1,0 +1,26 @@
+{
+  "description": "Golden vectors for the app signature layout in docs/design/spec.md. TEST KEY ONLY: the private key is public by construction and must never hold value.",
+  "testPrivateKey": "0x289dff4932755a4e636361c4f2a5264e5bde7cde6d6a5a9c81bf201864d7b971",
+  "testPrivateKeyDerivation": "SHA256('beid/event-key-sign/v1 golden vector key')",
+  "eventKeyCompressed": "0x02157f569f4ba8298dc31bf69aaac9efc75c16f9f8fb1630cf06443610e6e26581",
+  "eventKeyAddress": "0x05e8bDCA0D0523483Bc1a2F490A2F03cB00B776D",
+  "eventId": "0x996ab4d7cd0785199b715e6ff004f41ef740ead3b3363602ce1cb14b812d1f94",
+  "claim": {
+    "purpose": "0x02",
+    "chainId": 11155111,
+    "claimContract": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+    "recipient": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+    "message": "0xff626569642f6576656e742d6b65792d7369676e2f76310002996ab4d7cd0785199b715e6ff004f41ef740ead3b3363602ce1cb14b812d1f940000000000000000000000000000000000000000000000000000000000aa36a75fbdb2315678afecb367f032d93f642f64180aa370997970c51812dc3a010c7d01b50e0d17dc79c8",
+    "digest": "0xdd9f23836aa2d5c84ade7de282ba1b0b667ee5591fe12cb77a6e921ed130819c",
+    "signature": "0x3f710e304a2fce9324cfd5540b90966bbc8cdd1969d4461e51ae658404571dcb73b3866bb6649866d99b2f467f1e768c5144ce5e7126c1deb86c77ffb6dcf7581b",
+    "note": "The digest binds address(this); a contract under test must be deployed at claimContract, or the vector regenerated for its address."
+  },
+  "humanCheckBinding": {
+    "purpose": "0x01",
+    "challenge": "0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+    "message": "0xff626569642f6576656e742d6b65792d7369676e2f76310001996ab4d7cd0785199b715e6ff004f41ef740ead3b3363602ce1cb14b812d1f94a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+    "digest": "0xe5101edf166261bc067e32c14c959cd90c5668c2850975eb486c24252c4b7951",
+    "signature": "0xb590702126af9e2a06084467616635796968aa89dace7659880c55c471f5bf293443f426bfd0fd8528bcf518f062580b9b83015a722bde22536d8f687c63e6421b"
+  },
+  "verified": "Both message lengths (129, 89) and SHA-256 digests re-checked with xxd and shasum; the test key derives eventKeyAddress with cast. Signature recovery is covered by the component tests."
+}

@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0c2330" />
+    <title>Alcor · Check your event key</title>
+  </head>
+  <body>
+    <main class="shell">
+      <header class="masthead">
+        <div class="mark">A<span>✦</span></div>
+        <div>
+          <p class="eyebrow">ALCOR / HUMAN CHECK</p>
+          <h1>Make your event key count.</h1>
+          <p class="lede">Link one event key to one verified human before your observations are evaluated.</p>
+        </div>
+      </header>
+
+      <section class="card" aria-labelledby="check-title">
+        <div class="card-top">
+          <span class="step">01 — JOIN-TIME CHECK</span>
+          <span class="pill">World ID 4</span>
+        </div>
+        <h2 id="check-title">Start with the event</h2>
+        <label for="event-id">Registry event ID</label>
+        <input id="event-id" autocomplete="off" spellcheck="false" value="0x996ab4d7cd0785199b715e6ff004f41ef740ead3b3363602ce1cb14b812d1f94" />
+        <button id="start" type="button">Get a signing challenge <span aria-hidden="true">↗</span></button>
+        <div id="app-step" class="next-step" hidden>
+          <p class="step">02 — SIGN IN BEID</p>
+          <p>Open Beid and confirm the event-key request. Return here when the app has signed it.</p>
+          <a id="app-link" class="button-secondary" href="#">Open Beid</a>
+        </div>
+        <div id="world-step" class="next-step" hidden>
+          <p class="step">03 — VERIFY WITH WORLD ID</p>
+          <p>Open World App or scan the code to complete the distinct-human check.</p>
+          <a id="world-link" class="button-secondary" href="#" target="_blank" rel="noopener">Open World App</a>
+          <img id="world-qr" alt="QR code to open the World ID verification request" />
+        </div>
+        <p id="status" class="status" role="status" aria-live="polite">Ready to issue a single-use, ten-minute challenge.</p>
+      </section>
+
+      <p class="footnote">This check binds your event key to a unique World ID nullifier for this event. It does not publish a wallet address.</p>
+    </main>
+    <script type="module" src="/main.ts"></script>
+  </body>
+</html>
