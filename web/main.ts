@@ -1,4 +1,4 @@
-import { IDKit, proofOfHuman } from "@worldcoin/idkit-core";
+import { IDKit, proofOfHuman, hashSignal } from "@worldcoin/idkit-core";
 import QRCode from "qrcode";
 import "./style.css";
 
@@ -10,6 +10,109 @@ const appLink = document.querySelector<HTMLAnchorElement>("#app-link")!;
 const worldStep = document.querySelector<HTMLElement>("#world-step")!;
 const worldLink = document.querySelector<HTMLAnchorElement>("#world-link")!;
 const worldQr = document.querySelector<HTMLImageElement>("#world-qr")!;
+const panel = document.querySelector<HTMLElement>("#check-panel")!;
+const title = document.querySelector<HTMLElement>("#check-title")!;
+const eventDisplay = document.querySelector<HTMLElement>("#event-display")!;
+const keyDisplay = document.querySelector<HTMLElement>("#event-key")!;
+const keyPlaceholder = document.querySelector<HTMLElement>("#key-placeholder")!;
+const keyCaption = document.querySelector<HTMLElement>("#key-caption")!;
+const purpose = document.querySelector<HTMLElement>("#purpose")!;
+const startLabel = document.querySelector<HTMLElement>("#start-label")!;
+const stateLabel = document.querySelector<HTMLElement>("#state-label-text")!;
+const pendingNote = document.querySelector<HTMLElement>("#pending-note")!;
+const completionNote = document.querySelector<HTMLElement>("#completion-note")!;
+const eventEditor = document.querySelector<HTMLDetailsElement>("#event-editor")!;
+const challengeExpiry = document.querySelector<HTMLElement>("#challenge-expiry")!;
+
+type Screen = "start" | "issuing" | "waiting-app" | "checking" | "world" | "verified" | "already" | "expired" | "world-failed" | "unavailable" | "invalid-event" | "invalid-callback";
+type ScreenContent = { label: string; title: string; description: string; step: number; tone?: "error" | "success" };
+const screens: Record<Screen, ScreenContent> = {
+  start: { label: "Ready when you are", title: "Start with your event key.", description: "Sign a request in the app, then verify with World ID to receive your event credential.", step: 1 },
+  issuing: { label: "Preparing your check", title: "Getting your request ready.", description: "Creating a one-time signing request for this event.", step: 1 },
+  "waiting-app": { label: "Waiting for your signature", title: "Your next step is in the app.", description: "Open the app, confirm this event-key request, then return here to continue.", step: 1 },
+  checking: { label: "Signature received", title: "Checking your event key.", description: "Your signature is being checked before World ID verification begins.", step: 2 },
+  world: { label: "Waiting for World ID", title: "One person. One World ID.", description: "Complete the human check in World App, then return here for your event credential.", step: 2 },
+  verified: { label: "Verified · Credential issued", title: "You’re ready for this event.", description: "Your World ID is linked to the event key shown here, and its credential has been issued.", step: 3, tone: "success" },
+  already: { label: "A credential already exists", title: "Already linked for this event.", description: "One person can link only one key per event; return to the app and use the key you first verified.", step: 3, tone: "error" },
+  expired: { label: "Challenge expired", title: "Let’s start a fresh check.", description: "This signing request has expired; start a new check and sign the new request in the app.", step: 1, tone: "error" },
+  "world-failed": { label: "World ID check unsuccessful", title: "We couldn’t verify your World ID.", description: "World ID verification did not complete; start a new check and follow the prompts in World App.", step: 2, tone: "error" },
+  unavailable: { label: "Service unavailable", title: "Please try again later.", description: "The verification service could not be reached; try again later or contact the event organizer.", step: 2, tone: "error" },
+  "invalid-event": { label: "Check the event ID", title: "This event ID isn’t valid.", description: "The event ID must be 0x followed by 64 hexadecimal characters; check it with the event organizer and try again.", step: 1, tone: "error" },
+  "invalid-callback": { label: "Signature not accepted", title: "Let’s try signing again.", description: "The app signature could not be matched to this check; start again and sign the new request in the app.", step: 1, tone: "error" },
+};
+
+// Presentation only: preserve the full value and allow wrapping at four-digit boundaries.
+function showHex(element: HTMLElement, value: string) {
+  element.replaceChildren();
+  if (!/^0x[0-9a-fA-F]+$/.test(value)) { element.textContent = value; return; }
+  const groups = value.slice(2).match(/.{1,4}/g) ?? [];
+  groups.forEach((group, index) => {
+    if (index > 0) element.append(document.createElement("wbr"));
+    element.append(document.createTextNode(`${index === 0 ? "0x" : ""}${group}`));
+  });
+}
+
+function checksumEventAddress(address: string): string {
+  if (!/^0x[0-9a-fA-F]{40}$/.test(address)) return address;
+  const lower = address.slice(2).toLowerCase();
+  // IDKit returns keccak256 >> 8, padded to 32 bytes. EIP-55 uses only the
+  // first 20 bytes, which remain intact after removing the leading zero byte.
+  const hash = hashSignal(new TextEncoder().encode(lower)).slice(4);
+  return `0x${Array.from(lower, (char, i) => parseInt(hash[i], 16) >= 8 ? char.toUpperCase() : char).join("")}`;
+}
+
+function showEventKey(address: string) {
+  showHex(keyDisplay, checksumEventAddress(address));
+  keyDisplay.hidden = !address;
+  keyPlaceholder.hidden = !!address;
+}
+
+function updateEventPresentation() {
+  const value = eventInput.value.trim();
+  showHex(eventDisplay, value || "No event selected");
+  const shortId = /^0x[0-9a-fA-F]{64}$/.test(value) ? `${value.slice(0, 6)}…${value.slice(-4)}` : "the selected event";
+  purpose.replaceChildren(document.createTextNode("Link one World ID to this event key for event "));
+  const event = document.createElement("span");
+  event.className = "data";
+  event.textContent = shortId;
+  purpose.append(event, document.createTextNode("."));
+}
+
+function renderScreen(screen: Screen) {
+  const content = screens[screen];
+  panel.dataset.state = screen;
+  panel.dataset.tone = content.tone ?? "normal";
+  title.textContent = content.title;
+  stateLabel.textContent = content.label;
+  status.textContent = content.description;
+  status.dataset.kind = content.tone ?? "normal";
+  appStep.hidden = screen !== "waiting-app";
+  worldStep.hidden = screen !== "world";
+  const canStart = screen === "start" || (content.tone === "error" && screen !== "already");
+  startButton.hidden = !canStart;
+  startLabel.textContent = screen === "start" ? "Start human check" : screen === "unavailable" ? "Try again" : "Start a new check";
+  pendingNote.hidden = screen !== "checking" && screen !== "issuing";
+  completionNote.hidden = screen !== "verified";
+  keyCaption.textContent = screen === "verified" ? "Credentialed for this event." : screen === "already" ? "The key submitted for this check." : "The key you use for this event.";
+  eventEditor.style.visibility = canStart ? "visible" : "hidden";
+  if (!canStart) eventEditor.open = false;
+  document.querySelectorAll<HTMLElement>("[data-step]").forEach((item) => {
+    const step = Number(item.dataset.step);
+    item.classList.toggle("complete", step < content.step || screen === "verified");
+    if (step === content.step) item.setAttribute("aria-current", "step");
+    else item.removeAttribute("aria-current");
+  });
+  updateEventPresentation();
+}
+
+function errorScreen(message: string): Screen {
+  if (message === "credential_already_exists") return "already";
+  if (message === "expired_challenge") return "expired";
+  if (message.startsWith("world_verification_failed") || message === "World ID verification was not completed.") return "world-failed";
+  if (message === "invalid_event" || message === "Enter a 32-byte registry event ID.") return "invalid-event";
+  if (["invalid_binding", "unknown_challenge", "used_challenge", "invalid_app_signature", "unbound_key", "wrong_signal_or_request", "invalid_proof_shape", "invalid_verification"].includes(message) || message.startsWith("The app callback")) return "invalid-callback";
+  return "unavailable";
+}
 
 interface PendingCheck {
   eventId: string;
@@ -20,8 +123,19 @@ interface PendingCheck {
 }
 
 function setStatus(message: string, kind: "normal" | "error" | "success" = "normal") {
-  status.textContent = message;
-  status.dataset.kind = kind;
+  if (kind === "error") { renderScreen(errorScreen(message)); return; }
+  if (kind === "success") {
+    const address = message.match(/0x[0-9a-fA-F]{40}/)?.[0];
+    if (address) showEventKey(address);
+    renderScreen("verified");
+    return;
+  }
+  if (message.startsWith("Issuing")) { showEventKey(""); renderScreen("issuing"); }
+  else if (message.startsWith("Challenge expires")) {
+    challengeExpiry.textContent = `Sign before ${message.match(/^Challenge expires at (.+)\. Open /)?.[1] ?? "the request expires"}.`;
+    renderScreen("waiting-app");
+  } else if (message.startsWith("Checking")) renderScreen("checking");
+  else if (message.startsWith("Waiting for World")) renderScreen("world");
 }
 
 function storageKey(state: string) { return `alcor/join/v1/${state}`; }
@@ -90,6 +204,7 @@ async function finishFromCallback() {
     return;
   }
   eventInput.value = pending.eventId;
+  showEventKey(address);
   appStep.hidden = true;
   startButton.disabled = true;
   setStatus("Checking the event-key signature…");
@@ -136,5 +251,9 @@ async function verifyWithWorld(check: PendingCheck) {
   setStatus(`Verified. Your event key ${credential.eventKeyAddress} is published for this event.`, "success");
 }
 
+eventInput.addEventListener("input", updateEventPresentation);
+updateEventPresentation();
+
+renderScreen("start");
 startButton.addEventListener("click", () => { void start(); });
 void finishFromCallback();
