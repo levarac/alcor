@@ -3,44 +3,72 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#0c2330" />
-    <title>Alcor · Check your event key</title>
+    <meta name="theme-color" content="#FEFFFB" />
+    <title>Human check</title>
+    <link rel="preload" href="/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin />
   </head>
   <body>
     <main class="shell">
       <header class="masthead">
-        <div class="mark">A<span>✦</span></div>
-        <div>
-          <p class="eyebrow">ALCOR / HUMAN CHECK</p>
-          <h1>Make your event key count.</h1>
-          <p class="lede">Link one event key to one verified human before your observations are evaluated.</p>
-        </div>
+        <p class="eyebrow"><span class="square" aria-hidden="true"></span> One person. One event key.</p>
+        <p class="service-label">Verified with World ID</p>
       </header>
-
-      <section class="card" aria-labelledby="check-title">
-        <div class="card-top">
-          <span class="step">01 — JOIN-TIME CHECK</span>
-          <span class="pill">World ID 4</span>
-        </div>
-        <h2 id="check-title">Start with the event</h2>
-        <label for="event-id">Registry event ID</label>
-        <input id="event-id" autocomplete="off" spellcheck="false" value="0xccb8770a524f4145e04b3c97d8ffe2f7301ce65b4041d80e419bafdd803b2ee1" />
-        <button id="start" type="button">Get a signing challenge <span aria-hidden="true">↗</span></button>
-        <div id="app-step" class="next-step" hidden>
-          <p class="step">02 — SIGN IN BEID</p>
-          <p>Open Beid and confirm the event-key request. Return here when the app has signed it.</p>
-          <a id="app-link" class="button-secondary" href="#">Open Beid</a>
-        </div>
-        <div id="world-step" class="next-step" hidden>
-          <p class="step">03 — VERIFY WITH WORLD ID</p>
-          <p>Open World App or scan the code to complete the distinct-human check.</p>
-          <a id="world-link" class="button-secondary" href="#" target="_blank" rel="noopener">Open World App</a>
-          <img id="world-qr" alt="QR code to open the World ID verification request" />
-        </div>
-        <p id="status" class="status" role="status" aria-live="polite">Ready to issue a single-use, ten-minute challenge.</p>
-      </section>
-
-      <p class="footnote">This check binds your event key to a unique World ID nullifier for this event. It does not publish a wallet address.</p>
+      <div class="layout">
+        <section class="identity" aria-labelledby="page-title">
+          <p class="eyebrow section-label">Event participation</p>
+          <h1 id="page-title">Human<br class="desktop-break" /> check</h1>
+          <p id="purpose" class="purpose">Link one World ID to this event key for event <span class="data">0xccb8…2ee1</span>.</p>
+          <div class="identity-details">
+            <div class="detail-row">
+              <p class="eyebrow">Event</p>
+              <code id="event-display" class="event-value"></code>
+              <details id="event-editor">
+                <summary>Change event</summary>
+                <label for="event-id">Event ID</label>
+                <input id="event-id" autocomplete="off" spellcheck="false" value="0xccb8770a524f4145e04b3c97d8ffe2f7301ce65b4041d80e419bafdd803b2ee1" />
+              </details>
+            </div>
+            <div class="detail-row key-detail">
+              <p class="eyebrow">Your event key</p>
+              <code id="event-key" class="key-value" hidden></code>
+              <p id="key-placeholder" class="key-placeholder">Shown after you sign in the app.</p>
+              <p id="key-caption" class="key-caption">The key you use for this event.</p>
+            </div>
+          </div>
+        </section>
+        <section id="check-panel" class="check-panel" aria-labelledby="check-title" data-state="start">
+          <ol class="progress" aria-label="Human check progress">
+            <li data-step="1" aria-current="step"><span>01</span> Sign</li>
+            <li data-step="2"><span>02</span> Verify</li>
+            <li data-step="3"><span>03</span> Credential</li>
+          </ol>
+          <div class="state-body">
+            <p id="state-label" class="state-label"><span class="square" aria-hidden="true"></span><span id="state-label-text">Ready when you are</span></p>
+            <h2 id="check-title">Start with<br />your event key.</h2>
+            <p id="status" class="status" role="status" aria-live="polite">Sign a request in the app, then verify with World ID to receive your event credential.</p>
+            <div class="action-area">
+              <button id="start" class="primary-action" type="button"><span id="start-label">Start human check</span><span aria-hidden="true">↗</span></button>
+              <div id="app-step" hidden>
+                <a id="app-link" class="primary-action" href="#"><span>Open app</span><span aria-hidden="true">↗</span></a>
+                <p id="challenge-expiry" class="action-note"></p>
+              </div>
+              <div id="world-step" hidden>
+                <div class="world-content">
+                  <img id="world-qr" alt="Scan to open this World ID verification request" width="200" height="200" />
+                  <div>
+                    <p class="qr-instruction">Scan with your phone<br />or open World App.</p>
+                    <a id="world-link" class="primary-action" href="#" target="_blank" rel="noopener"><span>Open World App</span><span aria-hidden="true">↗</span></a>
+                  </div>
+                </div>
+              </div>
+              <div id="pending-note" class="pending-note" hidden><span class="activity" aria-hidden="true"></span><span>Keep this page open.</span></div>
+              <div id="completion-note" class="completion-note" hidden><span class="completion-mark" aria-hidden="true">✓</span><span id="completion-text">Your event key is now credentialed.</span></div>
+            </div>
+          </div>
+          <p class="panel-footnote">One person can link only one key per event.</p>
+        </section>
+      </div>
+      <footer class="footer"><span class="square" aria-hidden="true"></span><p>A human check for this event.<br class="mobile-break" /> Your event key stays the same.</p></footer>
     </main>
     <script type="module" src="/main.ts"></script>
   </body>
