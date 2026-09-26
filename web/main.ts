@@ -19,26 +19,28 @@ const keyCaption = document.querySelector<HTMLElement>("#key-caption")!;
 const purpose = document.querySelector<HTMLElement>("#purpose")!;
 const startLabel = document.querySelector<HTMLElement>("#start-label")!;
 const stateLabel = document.querySelector<HTMLElement>("#state-label-text")!;
+const resultChip = document.querySelector<HTMLElement>("#result-chip")!;
 const pendingNote = document.querySelector<HTMLElement>("#pending-note")!;
 const completionNote = document.querySelector<HTMLElement>("#completion-note")!;
+const alreadyNote = document.querySelector<HTMLElement>("#already-note")!;
 const eventEditor = document.querySelector<HTMLDetailsElement>("#event-editor")!;
 const challengeExpiry = document.querySelector<HTMLElement>("#challenge-expiry")!;
 
 type Screen = "start" | "issuing" | "waiting-app" | "checking" | "world" | "verified" | "already" | "expired" | "world-failed" | "unavailable" | "invalid-event" | "invalid-callback";
-type ScreenContent = { label: string; title: string; description: string; step: number; tone?: "error" | "success" };
+type ScreenContent = { label: string; title: string; emphasis: string; description: string; step: number; tone?: "error" | "success" };
 const screens: Record<Screen, ScreenContent> = {
-  start: { label: "Ready when you are", title: "Start with your event key.", description: "Sign a request in the app, then verify with World ID to receive your event credential.", step: 1 },
-  issuing: { label: "Preparing your check", title: "Getting your request ready.", description: "Creating a one-time signing request for this event.", step: 1 },
-  "waiting-app": { label: "Waiting for your signature", title: "Your next step is in the app.", description: "Open the app, confirm this event-key request, then return here to continue.", step: 1 },
-  checking: { label: "Signature received", title: "Checking your event key.", description: "Your signature is being checked before World ID verification begins.", step: 2 },
-  world: { label: "Waiting for World ID", title: "One person. One World ID.", description: "Complete the human check in World App, then return here for your event credential.", step: 2 },
-  verified: { label: "Verified · Credential issued", title: "You’re ready for this event.", description: "Your World ID is linked to the event key shown here, and its credential has been issued.", step: 3, tone: "success" },
-  already: { label: "A credential already exists", title: "Already linked for this event.", description: "One person can link only one key per event; return to the app and use the key you first verified.", step: 3, tone: "error" },
-  expired: { label: "Challenge expired", title: "Let’s start a fresh check.", description: "This signing request has expired; start a new check and sign the new request in the app.", step: 1, tone: "error" },
-  "world-failed": { label: "World ID check unsuccessful", title: "We couldn’t verify your World ID.", description: "World ID verification did not complete; start a new check and follow the prompts in World App.", step: 2, tone: "error" },
-  unavailable: { label: "Service unavailable", title: "Please try again later.", description: "The verification service could not be reached; try again later or contact the event organizer.", step: 2, tone: "error" },
-  "invalid-event": { label: "Check the event ID", title: "This event ID isn’t valid.", description: "The event ID must be 0x followed by 64 hexadecimal characters; check it with the event organizer and try again.", step: 1, tone: "error" },
-  "invalid-callback": { label: "Signature not accepted", title: "Let’s try signing again.", description: "The app signature could not be matched to this check; start again and sign the new request in the app.", step: 1, tone: "error" },
+  start: { label: "Ready when you are", title: "Start with your event key.", emphasis: "your event key.", description: "Sign a request in the app, then verify with World ID to receive your event credential.", step: 1 },
+  issuing: { label: "Preparing your check", title: "Getting your request ready.", emphasis: "request", description: "Creating a one-time signing request for this event.", step: 1 },
+  "waiting-app": { label: "Waiting for your signature", title: "Your next step is in the app.", emphasis: "in the app.", description: "Open the app, confirm this event-key request, then return here to continue.", step: 1 },
+  checking: { label: "Signature received", title: "Checking your event key.", emphasis: "your event key.", description: "Your signature is being checked before World ID verification begins.", step: 2 },
+  world: { label: "Waiting for World ID", title: "One person. One World ID.", emphasis: "One World ID.", description: "Complete the human check in World App, then return here for your event credential.", step: 2 },
+  verified: { label: "Verified · Credential issued", title: "You’re ready for this event.", emphasis: "ready", description: "Your World ID is linked to the event key shown here, and its credential has been issued.", step: 3, tone: "success" },
+  already: { label: "A credential already exists", title: "Already linked for this event.", emphasis: "Already linked", description: "This World ID or this event key already has a credential for this event.", step: 3, tone: "error" },
+  expired: { label: "Challenge expired", title: "Let’s start a fresh check.", emphasis: "a fresh check.", description: "This signing request has expired; start a new check and sign the new request in the app.", step: 1, tone: "error" },
+  "world-failed": { label: "World ID check unsuccessful", title: "We couldn’t verify your World ID.", emphasis: "World ID.", description: "World ID verification did not complete; start a new check and follow the prompts in World App.", step: 2, tone: "error" },
+  unavailable: { label: "Service unavailable", title: "Please try again later.", emphasis: "try again", description: "The verification service could not be reached; try again later or contact the event organizer.", step: 2, tone: "error" },
+  "invalid-event": { label: "Check the event ID", title: "This event ID isn’t valid.", emphasis: "isn’t valid.", description: "The event ID must be 0x followed by 64 hexadecimal characters; check it with the event organizer and try again.", step: 1, tone: "error" },
+  "invalid-callback": { label: "Signature not accepted", title: "Let’s try signing again.", emphasis: "signing again.", description: "The app signature could not be matched to this check; start again and sign the new request in the app.", step: 1, tone: "error" },
 };
 
 // Presentation only: preserve the full value and allow wrapping at four-digit boundaries.
@@ -78,21 +80,36 @@ function updateEventPresentation() {
   purpose.append(event, document.createTextNode("."));
 }
 
+function renderHeading(text: string, emphasis: string) {
+  const offset = text.indexOf(emphasis);
+  if (offset < 0) { title.textContent = text; return; }
+  const block = document.createElement("span");
+  block.className = "headline-emphasis";
+  block.textContent = emphasis;
+  title.replaceChildren(document.createTextNode(text.slice(0, offset)), block, document.createTextNode(text.slice(offset + emphasis.length)));
+}
+
 function renderScreen(screen: Screen) {
   const content = screens[screen];
   panel.dataset.state = screen;
   panel.dataset.tone = content.tone ?? "normal";
-  title.textContent = content.title;
+  renderHeading(content.title, content.emphasis);
+  resultChip.hidden = !content.tone;
+  resultChip.textContent = content.tone === "success" ? "PASS" : content.tone === "error" ? "FAIL" : "";
   stateLabel.textContent = content.label;
   status.textContent = content.description;
   status.dataset.kind = content.tone ?? "normal";
   appStep.hidden = screen !== "waiting-app";
   worldStep.hidden = screen !== "world";
   const canStart = screen === "start" || (content.tone === "error" && screen !== "already");
-  startButton.hidden = !canStart;
-  startLabel.textContent = screen === "start" ? "Start human check" : screen === "unavailable" ? "Try again" : "Start a new check";
+  const waitingForApp = screen === "waiting-app";
+  startButton.hidden = !canStart && !waitingForApp;
+  startButton.classList.toggle("primary-action", !waitingForApp);
+  startButton.classList.toggle("secondary-action", waitingForApp);
+  startLabel.textContent = waitingForApp ? "Start again" : screen === "start" ? "Start human check" : screen === "unavailable" ? "Try again" : "Start a new check";
   pendingNote.hidden = screen !== "checking" && screen !== "issuing";
   completionNote.hidden = screen !== "verified";
+  alreadyNote.hidden = screen !== "already";
   keyCaption.textContent = screen === "verified" ? "Credentialed for this event." : screen === "already" ? "The key submitted for this check." : "The key you use for this event.";
   eventEditor.style.visibility = canStart ? "visible" : "hidden";
   if (!canStart) eventEditor.open = false;
