@@ -189,7 +189,7 @@ describe("human-check endpoints", () => {
   it("returns public IDKit configuration and a backend RP signature without exposing keys", async () => {
     const config = await app.fetch(new Request(`http://localhost/config?eventId=${eventId}`), env);
     expect(config.status).toBe(200);
-    expect(await config.json()).toEqual({ appId: "app_FAKE_TEST", rpId: "rp_FAKE_TEST", action: "mizar-996ab4d7", environment: "staging" });
+    expect(await config.json()).toEqual({ appId: "app_FAKE_TEST", rpId: "rp_FAKE_TEST", action: "mizar-996ab4d7", environment: "staging", legacy: false });
     const signed = await post("/rp-context", { eventId });
     expect(signed.status).toBe(200);
     const body = await signed.json() as Record<string, unknown>;
@@ -197,6 +197,126 @@ describe("human-check endpoints", () => {
     expect(body.rp_id).toBe("rp_FAKE_TEST");
     expect(body).toHaveProperty("nonce");
     expect(body).not.toHaveProperty("signingKeyHex");
+  });
+});
+
+describe("World ID 3.0 legacy staging mode", () => {
+  const legacyNullifier = "0x0a1b2c0000000000000000000000000000000000000000000000000000000003";
+
+  function legacyResult(signal: string, overrides: Record<string, unknown> = {}, root: Record<string, unknown> = {}) {
+    return {
+      protocol_version: "3.0",
+      nonce: fixture.idkitResult.nonce,
+      action: fixture.idkitResult.action,
+      environment: "staging",
+      responses: [{
+        identifier: "orb",
+        signal_hash: hashSignal(signal),
+        proof: `0x${"1a".repeat(256)}`,
+        merkle_root: `0x${"2b".repeat(32)}`,
+        nullifier: legacyNullifier,
+        ...overrides,
+      }],
+      ...root,
+    };
+  }
+
+  function legacyWorld(nullifier = legacyNullifier) {
+    return { status: 200, body: {
+      success: true, action: fixture.idkitResult.action, nullifier, environment: "staging",
+      created_at: "2026-09-26T00:00:00Z", results: [{ identifier: "orb", success: true, nullifier }],
+    } };
+  }
+
+  async function bindSecondKey() {
+    const challenge = (await (await post("/challenge", { eventId })).json() as { challenge: string }).challenge;
+    const signed = secp256k1.sign(hexToBytes(bindingDigest(eventId, challenge)), secondTestKey, { lowS: true });
+    const appSignature = `${toHex(signed.toCompactRawBytes())}${(27 + signed.recovery).toString(16)}`;
+    const bound = await post("/bind", { eventId, eventKey: secondKey, challenge, appSignature });
+    expect(bound.status).toBe(200);
+    return { challenge, signal: (await bound.json() as { signal: string }).signal };
+  }
+
+  it("rejects a 3.0 proof before calling World when legacy mode is off", async () => {
+    const { challenge, response } = await bind();
+    const { signal } = await response.json() as { signal: string };
+    const config = await app.fetch(new Request(`http://localhost/config?eventId=${eventId}`), env);
+    expect((await config.json() as { legacy: boolean }).legacy).toBe(false);
+    expect((await post("/verify", { eventId, eventKey, challenge, idkitResult: legacyResult(signal) })).status).toBe(400);
+    expect(verifyMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects legacy proofs in production even when the switch is on", async () => {
+    env.WORLD_ENV = "production";
+    env.WORLD_LEGACY_STAGING = "on";
+    const { challenge, response } = await bind();
+    const { signal } = await response.json() as { signal: string };
+    const config = await app.fetch(new Request(`http://localhost/config?eventId=${eventId}`), env);
+    expect((await config.json() as { legacy: boolean }).legacy).toBe(false);
+    const result = legacyResult(signal, {}, { environment: "production" });
+    expect((await post("/verify", { eventId, eventKey, challenge, idkitResult: result })).status).toBe(400);
+    expect(verifyMock).not.toHaveBeenCalled();
+  });
+
+  it("accepts a legacy orb proof, stores its nullifier and rejects a second key with the same nullifier", async () => {
+    env.WORLD_LEGACY_STAGING = "on";
+    const config = await app.fetch(new Request(`http://localhost/config?eventId=${eventId}`), env);
+    expect((await config.json() as { legacy: boolean }).legacy).toBe(true);
+    const { challenge, response } = await bind();
+    const { signal } = await response.json() as { signal: string };
+    const result = legacyResult(signal);
+    verifyMock.mockResolvedValueOnce(legacyWorld());
+    const verified = await post("/verify", { eventId, eventKey, challenge, idkitResult: result });
+    expect(verified.status).toBe(200);
+    expect(verifyMock).toHaveBeenCalledWith(result, "rp_FAKE_TEST");
+    const credential = (await verified.json() as { credential: Record<string, unknown> }).credential;
+    expect(credential.nullifierHash).toBe(legacyNullifier);
+    expect(credential.eventKey).toBe(eventKey);
+
+    const second = await bindSecondKey();
+    verifyMock.mockResolvedValueOnce(legacyWorld());
+    const duplicate = await post("/verify", { eventId, eventKey: secondKey, challenge: second.challenge, idkitResult: legacyResult(second.signal) });
+    expect(duplicate.status).toBe(409);
+    expect(await duplicate.json()).toEqual({ error: "credential_already_exists" });
+  });
+
+  it("gives a second key its own credential for a distinct legacy nullifier", async () => {
+    env.WORLD_LEGACY_STAGING = "on";
+    const { challenge, response } = await bind();
+    const { signal } = await response.json() as { signal: string };
+    verifyMock.mockResolvedValueOnce(legacyWorld());
+    expect((await post("/verify", { eventId, eventKey, challenge, idkitResult: legacyResult(signal) })).status).toBe(200);
+    const otherNullifier = "0x0a1b2c0000000000000000000000000000000000000000000000000000000004";
+    const second = await bindSecondKey();
+    verifyMock.mockResolvedValueOnce(legacyWorld(otherNullifier));
+    const verified = await post("/verify", { eventId, eventKey: secondKey, challenge: second.challenge,
+      idkitResult: legacyResult(second.signal, { nullifier: otherNullifier }) });
+    expect(verified.status).toBe(200);
+    const list = await (await app.fetch(new Request(`http://localhost/credentials?eventId=${eventId}`), env)).json() as { credentials: unknown[] };
+    expect(list.credentials).toHaveLength(2);
+  });
+
+  it("rejects malformed legacy proofs and mismatched World results", async () => {
+    env.WORLD_LEGACY_STAGING = "on";
+    const { challenge, response } = await bind();
+    const { signal } = await response.json() as { signal: string };
+    const post3 = (result: unknown) => post("/verify", { eventId, eventKey, challenge, idkitResult: result });
+    expect((await post3(legacyResult(signal, { identifier: "proof_of_human" }))).status).toBe(400);
+    expect((await post3(legacyResult(signal, { proof: ["0x1a2b"] }))).status).toBe(400);
+    expect((await post3(legacyResult(signal, { merkle_root: undefined }))).status).toBe(400);
+    expect((await post3(legacyResult(signal, { signal_hash: hashSignal("other") }))).status).toBe(400);
+    expect(verifyMock).not.toHaveBeenCalled();
+    const mismatched = legacyWorld();
+    (mismatched.body.results[0] as { identifier: string }).identifier = "proof_of_human";
+    verifyMock.mockResolvedValueOnce(mismatched);
+    expect((await post3(legacyResult(signal))).status).toBe(400);
+  });
+
+  it("keeps the native 4.0 path working with legacy mode on", async () => {
+    env.WORLD_LEGACY_STAGING = "on";
+    const { challenge, response } = await bind();
+    const { signal } = await response.json() as { signal: string };
+    expect((await post("/verify", { eventId, eventKey, challenge, idkitResult: idkit(signal) })).status).toBe(200);
   });
 });
 

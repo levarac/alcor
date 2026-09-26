@@ -16,6 +16,8 @@ not_found_handling = "none"
 [vars]
 WORLD_ACTION = "mizar-ccb8770a"
 WORLD_ENV = "staging"
+# Staging-only World ID 3.0 compatibility mode; ignored unless WORLD_ENV is "staging".
+WORLD_LEGACY_STAGING = "on"
 # WORLD_APP_ID and WORLD_RP_ID are supplied with secret put during deployment.
 # WORLD_RP_SIGNING_KEY and ATTESTATION_KEY must also be secret bindings.
 

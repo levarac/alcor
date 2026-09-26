@@ -1,4 +1,4 @@
-import { IDKit, proofOfHuman, hashSignal } from "@worldcoin/idkit-core";
+import { IDKit, orbLegacy, proofOfHuman, hashSignal } from "@worldcoin/idkit-core";
 import QRCode from "qrcode";
 import "./style.css";
 
@@ -252,7 +252,7 @@ async function verifyWithWorld(check: PendingCheck) {
   if (!check.signal || !check.eventKey) throw new Error("The event key has not been bound.");
   const configResponse = await fetch(`/config?eventId=${encodeURIComponent(check.eventId)}`);
   if (!configResponse.ok) throw new Error("World ID configuration is unavailable.");
-  const config = await configResponse.json() as { appId: string; rpId: string; action: string; environment: "staging" | "production" };
+  const config = await configResponse.json() as { appId: string; rpId: string; action: string; environment: "staging" | "production"; legacy?: boolean };
   const rpContext = await post<{ rp_id: string; nonce: string; created_at: number; expires_at: number; signature: string }>(
     "/rp-context", { eventId: check.eventId },
   );
@@ -261,9 +261,11 @@ async function verifyWithWorld(check: PendingCheck) {
     app_id: config.appId as `app_${string}`,
     action: config.action,
     rp_context: rpContext,
-    allow_legacy_proofs: false,
+    // Staging-only World ID 3.0 compatibility mode (see the README): the Simulator's
+    // legacy proofs come from the selected test identity, its 4.0 proofs do not.
+    allow_legacy_proofs: config.legacy === true,
     environment: config.environment,
-  }).preset(proofOfHuman({ signal: check.signal }));
+  }).preset(config.legacy === true ? orbLegacy({ signal: check.signal }) : proofOfHuman({ signal: check.signal }));
   worldLink.href = request.connectorURI;
   worldQr.src = await QRCode.toDataURL(request.connectorURI, { margin: 1, width: 380 });
   worldStep.hidden = false;
