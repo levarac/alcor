@@ -4,6 +4,10 @@ Alcor runs per-claimant checks for [Mizar](https://github.com/levarac/mizar) par
 
 Mizar decides which mutual observations count as participation and settles claims in batch. Alcor handles the individual at join time: a join page the participant opens when joining the event, and a verification Worker that binds the attendee's event key to one World ID-verified person and publishes a signed credential list. Mizar's evaluator counts only credentialed keys, so one person running several devices cannot confirm their own observations. The claim itself happens later on Mizar's claim page.
 
+## Join page
+
+The join page keeps each pending check in `localStorage`, not `sessionStorage`, under a key built from a random per-check state value. A callback is accepted only if its state matches a pending entry in this browser, and the callback fragment is cleared before that check. Successful checks remove their entries; abandoned checks remain until the browser's local storage is cleared.
+
 ## Status
 
 Built during ETHGlobal Tokyo 2026 (hacking started 2026-09-25 21:00 JST). Work in progress.
