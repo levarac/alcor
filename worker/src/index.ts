@@ -19,6 +19,16 @@ export interface Env {
 interface WorldVerification {
   status: number;
   body: unknown;
+  diagnostics?: {
+    content_type: string | null;
+    server: string | null;
+    cf_ray: string | null;
+    cf_mitigated: string | null;
+    x_vercel_id: string | null;
+    x_vercel_error: string | null;
+    world_body_json: boolean;
+    body_preview: string | null;
+  };
 }
 
 interface Dependencies {
@@ -162,7 +172,11 @@ function diagnosticText(value: unknown, sensitive: unknown[]): string | null {
 }
 
 async function defaultWorldVerify(result: unknown, env: Env): Promise<WorldVerification> {
-  const headers: Record<string, string> = { "content-type": "application/json" };
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+    accept: "application/json",
+    "user-agent": "alcor-human-check/1.0 (+https://github.com/levarac/alcor)",
+  };
   if (env.WORLD_ENV === "staging" && env.WORLD_STAGING_VERIFICATION_TOKEN) {
     headers["x-staging-verification-token"] = env.WORLD_STAGING_VERIFICATION_TOKEN;
   }
@@ -172,9 +186,25 @@ async function defaultWorldVerify(result: unknown, env: Env): Promise<WorldVerif
     body: JSON.stringify(result),
   });
   let body: unknown;
-  try { body = await response.json(); }
+  let text = "";
+  let bodyJson = false;
+  try {
+    text = await response.text();
+    body = JSON.parse(text);
+    bodyJson = true;
+  }
   catch { body = null; }
-  return { status: response.status, body };
+  return { status: response.status, body, ...(!response.ok ? { diagnostics: {
+    content_type: response.headers.get("content-type"),
+    server: response.headers.get("server"),
+    cf_ray: response.headers.get("cf-ray"),
+    cf_mitigated: response.headers.get("cf-mitigated"),
+    x_vercel_id: response.headers.get("x-vercel-id"),
+    x_vercel_error: response.headers.get("x-vercel-error"),
+    world_body_json: bodyJson,
+    // Keep the text intact until echoed sensitive values have been redacted.
+    body_preview: bodyJson ? null : text,
+  } } : {}) };
 }
 
 export function createApp(dependencies: Dependencies = {}) {
@@ -289,6 +319,8 @@ export function createApp(dependencies: Dependencies = {}) {
           const sensitive = [responses, result.nonce, row, env.WORLD_STAGING_VERIFICATION_TOKEN,
             env.WORLD_RP_SIGNING_KEY, env.ATTESTATION_KEY];
           const worldResults = object(world) && Array.isArray(world.results) ? world.results : [];
+          const diagnostics = verified.diagnostics;
+          const contentType = diagnosticText(diagnostics?.content_type, sensitive);
           console.error("World verification failed", {
             status: verified.status,
             code: diagnosticText(object(world) ? world.code : null, sensitive),
@@ -296,6 +328,16 @@ export function createApp(dependencies: Dependencies = {}) {
             results: worldResults.map((item) => object(item)
               ? { code: diagnosticText(item.code, sensitive), detail: diagnosticText(item.detail, sensitive) }
               : null),
+            ...(diagnostics ? {
+              content_type: contentType,
+              server: diagnosticText(diagnostics.server, sensitive),
+              cf_ray: diagnosticText(diagnostics.cf_ray, sensitive),
+              cf_mitigated: diagnosticText(diagnostics.cf_mitigated, sensitive),
+              x_vercel_id: diagnosticText(diagnostics.x_vercel_id, sensitive),
+              x_vercel_error: diagnosticText(diagnostics.x_vercel_error, sensitive),
+              world_body_json: diagnostics.world_body_json,
+              body_preview: diagnosticText(diagnostics.body_preview, sensitive)?.slice(0, 200) ?? null,
+            } : {}),
           });
           if (verified.status === 403 && object(world) && world.code === "environment_not_allowed") {
             return json({ error: "world_unavailable", reason: "environment_not_allowed" }, 503);
@@ -305,6 +347,10 @@ export function createApp(dependencies: Dependencies = {}) {
             world_status: verified.status,
             world_code: worldErrorCode(object(world) ? world.code : null, sensitive),
             world_result_codes: worldResults.map((item) => worldErrorCode(object(item) ? item.code : null, sensitive)),
+            ...(diagnostics?.world_body_json === false ? {
+              world_body_json: false,
+              ...(contentType !== null && contentType === diagnostics.content_type ? { content_type: contentType } : {}),
+            } : {}),
           }, verified.status >= 500 ? 502 : 400);
         }
         if (!env.ATTESTATION_KEY) return fail("attestation_key_unconfigured", 503);

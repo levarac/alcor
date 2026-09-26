@@ -218,6 +218,67 @@ describe("World verification diagnostics and staging access", () => {
     return { signal, result, body: { eventId, eventKey, challenge, idkitResult: result } };
   }
 
+  it("requests JSON with a descriptive user agent", async () => {
+    const { body } = await prepareVerification();
+    fetchMock.mockResolvedValueOnce(Response.json(fixture.worldResponse));
+    expect((await post("/verify", body)).status).toBe(200);
+    const headers = new Headers(fetchMock.mock.calls[0][1].headers);
+    expect(headers.get("accept")).toBe("application/json");
+    expect(headers.get("user-agent")).toBe("alcor-human-check/1.0 (+https://github.com/levarac/alcor)");
+  });
+
+  it("logs edge diagnostics and a bounded preview for a non-JSON 403", async () => {
+    const { body } = await prepareVerification();
+    const html = `<html><title>Access denied</title>${"x".repeat(250)}</html>`;
+    const upstream = new Response(html, { status: 403, headers: {
+      "content-type": "text/html; charset=utf-8", server: "cloudflare", "cf-ray": "test-ray-NRT",
+      "cf-mitigated": "challenge", "x-vercel-id": "test-vercel-id", "x-vercel-error": "FORBIDDEN",
+    } });
+    const readText = vi.spyOn(upstream, "text");
+    const readJson = vi.spyOn(upstream, "json");
+    fetchMock.mockResolvedValueOnce(upstream);
+    const response = await post("/verify", body);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "world_verification_failed", world_status: 403,
+      world_code: null, world_result_codes: [], content_type: "text/html; charset=utf-8", world_body_json: false });
+    expect(readText).toHaveBeenCalledTimes(1);
+    expect(readJson).not.toHaveBeenCalled();
+    expect(errorLog).toHaveBeenCalledExactlyOnceWith("World verification failed", {
+      status: 403, code: null, detail: null, results: [], content_type: "text/html; charset=utf-8",
+      server: "cloudflare", cf_ray: "test-ray-NRT", cf_mitigated: "challenge",
+      x_vercel_id: "test-vercel-id", x_vercel_error: "FORBIDDEN", world_body_json: false,
+      body_preview: html.slice(0, 200),
+    });
+    const credentials = await app.fetch(new Request(`http://localhost/credentials?eventId=${eventId}`), env);
+    expect((await credentials.json() as { credentials: unknown[] }).credentials).toEqual([]);
+  });
+
+  it("redacts echoed secrets in edge headers and non-JSON text before truncation", async () => {
+    const { signal, result, body } = await prepareVerification();
+    result.responses[0].proof = ["private_proof_material".repeat(20)];
+    const sensitive = [stagingToken, testSeed, env.WORLD_RP_SIGNING_KEY!, eventKey, signal, body.challenge,
+      result.nonce, result.responses[0].signal_hash, result.responses[0].nullifier, ...result.responses[0].proof];
+    const echoed = sensitive.join(" ");
+    fetchMock.mockResolvedValueOnce(new Response(`<html>${result.responses[0].proof} ${echoed}</html>`, {
+      status: 403, headers: Object.fromEntries(
+        ["content-type", "server", "cf-ray", "cf-mitigated", "x-vercel-id", "x-vercel-error"].map(name => [name, echoed]),
+      ),
+    }));
+    const response = await post("/verify", body);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "world_verification_failed", world_status: 403,
+      world_code: null, world_result_codes: [], world_body_json: false });
+    expect(errorLog).toHaveBeenCalledTimes(1);
+    const diagnostics = errorLog.mock.calls[0][1] as Record<string, string>;
+    expect(diagnostics.body_preview).toMatch(/^<html>\[redacted\]/);
+    expect(diagnostics.body_preview.length).toBeLessThanOrEqual(200);
+    for (const field of ["content_type", "server", "cf_ray", "cf_mitigated", "x_vercel_id", "x_vercel_error"]) {
+      expect(diagnostics[field]).toContain("[redacted]");
+    }
+    const logged = JSON.stringify(errorLog.mock.calls);
+    for (const value of [...sensitive, "private_proof_material"]) expect(logged).not.toContain(value);
+  });
+
   it.each(["staging", "production"] as const)("sends the staging token only in staging: %s", async environment => {
     env.WORLD_ENV = environment;
     const { result, body } = await prepareVerification();
