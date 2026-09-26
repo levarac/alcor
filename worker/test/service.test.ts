@@ -193,3 +193,61 @@ describe("human-check endpoints", () => {
     expect(body).not.toHaveProperty("signingKeyHex");
   });
 });
+
+describe("static assets alongside the API", () => {
+  function withAssets() {
+    const fetch = vi.fn(async (request: Request) => {
+      const path = new URL(request.url).pathname;
+      if (path === "/" || path === "/assets/main.js") {
+        return new Response(request.method === "HEAD" ? null : path === "/" ? "<h1>Join Alcor</h1>" : "console.log('join')", {
+          headers: { "content-type": path === "/" ? "text/html" : "text/javascript" },
+        });
+      }
+      return new Response(null, { status: 404 });
+    });
+    const bindings = { ...env, ASSETS: { fetch } };
+    return { fetch, bindings };
+  }
+
+  it("serves the join page, bundled assets and HEAD requests through the asset binding", async () => {
+    const { bindings } = withAssets();
+    const page = await app.fetch(new Request("http://localhost/"), bindings);
+    expect(page.status).toBe(200);
+    expect(await page.text()).toContain("Join Alcor");
+    const script = await app.fetch(new Request("http://localhost/assets/main.js"), bindings);
+    expect(script.headers.get("content-type")).toBe("text/javascript");
+    expect(await script.text()).toContain("console.log");
+    const head = await app.fetch(new Request("http://localhost/", { method: "HEAD" }), bindings);
+    expect(head.status).toBe(200);
+    expect(await head.text()).toBe("");
+  });
+
+  it("preserves JSON API responses and errors instead of falling through to HTML", async () => {
+    const { fetch, bindings } = withAssets();
+    for (const path of ["/config", "/credentials"]) {
+      const response = await app.fetch(new Request(`http://localhost${path}?eventId=${eventId}`), bindings);
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("application/json");
+    }
+    expect((await app.fetch(new Request("http://localhost/config?eventId=bad"), bindings)).status).toBe(400);
+    for (const path of ["/challenge", "/bind", "/rp-context", "/verify"]) {
+      const response = await app.fetch(new Request(`http://localhost${path}`, { method: "POST", body: "{}" }), bindings);
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: "invalid_event" });
+    }
+    const wrongMethod = await app.fetch(new Request("http://localhost/verify"), bindings);
+    expect(wrongMethod.status).toBe(404);
+    expect(await wrongMethod.json()).toEqual({ error: "not_found" });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("keeps missing assets and unknown POST paths as 404", async () => {
+    const { fetch, bindings } = withAssets();
+    expect((await app.fetch(new Request("http://localhost/missing.js"), bindings)).status).toBe(404);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const response = await app.fetch(new Request("http://localhost/missing", { method: "POST", body: "not JSON" }), bindings);
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: "not_found" });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+});
