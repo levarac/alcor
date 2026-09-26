@@ -367,7 +367,13 @@ export function createApp(dependencies: Dependencies = {}) {
         try {
           await env.DB.prepare("INSERT INTO credentials (event_id, event_key, event_key_address, nullifier_hash, verified_at, challenge, app_signature, proof_digest, attestation) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
             .bind(eventId, eventKey, entry.eventKeyAddress, nullifier, entry.verifiedAt, entry.challenge, entry.appSignature, entry.proofDigest, JSON.stringify(attestation)).run();
-        } catch { return fail("credential_already_exists", 409); }
+        } catch (error) {
+          console.error("Credential insert failed", {
+            message: String(error instanceof Error ? error.message : error).slice(0, 200),
+            nullifierPrefix: nullifier.slice(0, 12),
+          });
+          return fail("credential_already_exists", 409);
+        }
         return json({ credential: entry });
       }
       return fail("not_found", 404);
