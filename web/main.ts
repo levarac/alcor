@@ -40,7 +40,12 @@ async function post<T>(path: string, body: unknown): Promise<T> {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
   });
   const data = await response.json() as T & { error?: string };
-  if (!response.ok) throw new Error(data.error ?? `Request failed (${response.status})`);
+  if (!response.ok) {
+    if (data.error === "world_unavailable") {
+      throw new Error("World ID verification is currently unavailable. Please try again later or contact the event organizer.");
+    }
+    throw new Error(data.error ?? `Request failed (${response.status})`);
+  }
   return data;
 }
 

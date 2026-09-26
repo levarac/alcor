@@ -11,6 +11,7 @@ export interface Env {
   WORLD_RP_ID: string;
   WORLD_ACTION: string;
   WORLD_ENV: "staging" | "production";
+  WORLD_STAGING_VERIFICATION_TOKEN?: string;
   WORLD_RP_SIGNING_KEY?: Hex;
   ATTESTATION_KEY?: Hex;
 }
@@ -138,10 +139,30 @@ function credentialSignature(entry: Omit<CredentialEntry, "attestation">, key: H
   };
 }
 
-async function defaultWorldVerify(result: unknown, rpId: string): Promise<WorldVerification> {
-  const response = await fetch(`https://developer.world.org/api/v4/verify/${encodeURIComponent(rpId)}`, {
+function diagnosticText(value: unknown, sensitive: unknown[]): string | null {
+  if (typeof value !== "string") return null;
+  function strings(item: unknown): string[] {
+    if (typeof item === "string") return item ? [item] : [];
+    if (typeof item === "number") return [String(item)];
+    if (Array.isArray(item)) return item.flatMap(strings);
+    if (object(item)) return Object.values(item).flatMap(strings);
+    return [];
+  }
+  // Upstream text can echo submitted data. Redact before truncating or logging.
+  for (const secret of strings(sensitive).sort((a, b) => b.length - a.length)) {
+    value = (value as string).split(secret).join("[redacted]");
+  }
+  return (value as string).replace(/0x[0-9a-f]+/gi, "[redacted]").replace(/[\u0000-\u001f\u007f]/g, " ").slice(0, 512);
+}
+
+async function defaultWorldVerify(result: unknown, env: Env): Promise<WorldVerification> {
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  if (env.WORLD_ENV === "staging" && env.WORLD_STAGING_VERIFICATION_TOKEN) {
+    headers["x-staging-verification-token"] = env.WORLD_STAGING_VERIFICATION_TOKEN;
+  }
+  const response = await fetch(`https://developer.world.org/api/v4/verify/${encodeURIComponent(env.WORLD_RP_ID)}`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers,
     body: JSON.stringify(result),
   });
   let body: unknown;
@@ -153,7 +174,6 @@ async function defaultWorldVerify(result: unknown, rpId: string): Promise<WorldV
 export function createApp(dependencies: Dependencies = {}) {
   const now = dependencies.now ?? Date.now;
   const randomBytes = dependencies.randomBytes ?? (() => crypto.getRandomValues(new Uint8Array(32)));
-  const worldVerify = dependencies.worldVerify ?? defaultWorldVerify;
 
   return {
     async fetch(request: Request, env: Env): Promise<Response> {
@@ -242,14 +262,34 @@ export function createApp(dependencies: Dependencies = {}) {
         }
         const nullifier = normalizeNullifier(responses[0].nullifier);
         if (!nullifier || !Array.isArray(responses[0].proof)) return fail("invalid_proof_shape", 400);
+        if (env.WORLD_ENV === "staging" && !env.WORLD_STAGING_VERIFICATION_TOKEN) {
+          console.error("World verification unavailable", { reason: "staging_token_missing" });
+          return json({ error: "world_unavailable", reason: "staging_token_missing" }, 503);
+        }
         let verified: WorldVerification;
-        try { verified = await worldVerify(result, env.WORLD_RP_ID); }
-        catch { return fail("world_unavailable", 502); }
+        try {
+          verified = dependencies.worldVerify
+            ? await dependencies.worldVerify(result, env.WORLD_RP_ID)
+            : await defaultWorldVerify(result, env);
+        } catch {
+          console.error("World verification unavailable", { reason: "request_failed" });
+          return fail("world_unavailable", 502);
+        }
         const world = verified.body;
         if (verified.status !== 200 || !object(world) || world.success !== true || world.action !== env.WORLD_ACTION || world.environment !== env.WORLD_ENV ||
             normalizeNullifier(world.nullifier) !== nullifier || !Array.isArray(world.results) || world.results.length !== 1 ||
             !object(world.results[0]) || world.results[0].success !== true || world.results[0].identifier !== "proof_of_human" ||
             normalizeNullifier(world.results[0].nullifier) !== nullifier) {
+          const sensitive = [responses, result.nonce, row, env.WORLD_STAGING_VERIFICATION_TOKEN,
+            env.WORLD_RP_SIGNING_KEY, env.ATTESTATION_KEY];
+          console.error("World verification failed", {
+            status: verified.status,
+            code: diagnosticText(object(world) ? world.code : null, sensitive),
+            detail: diagnosticText(object(world) ? world.detail : null, sensitive),
+          });
+          if (verified.status === 403 && object(world) && world.code === "environment_not_allowed") {
+            return json({ error: "world_unavailable", reason: "environment_not_allowed" }, 503);
+          }
           return fail("world_verification_failed", verified.status >= 500 ? 502 : 400);
         }
         if (!env.ATTESTATION_KEY) return fail("attestation_key_unconfigured", 503);

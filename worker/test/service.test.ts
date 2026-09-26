@@ -18,6 +18,7 @@ const eventKey = vector.eventKeyCompressed;
 const secondTestKey = hexToBytes(sha256(toBytes("ALCOR DETERMINISTIC SECOND EVENT TEST KEY ONLY")));
 const secondKey = toHex(secp256k1.getPublicKey(secondTestKey, true));
 const testSeed = sha256(new TextEncoder().encode("ALCOR DETERMINISTIC TEST ATTESTATION KEY ONLY"));
+const stagingToken = "ALCOR_TEST_STAGING_TOKEN_ONLY";
 
 let mf: Miniflare;
 let env: Env;
@@ -61,6 +62,7 @@ beforeEach(async () => {
     WORLD_RP_ID: "rp_FAKE_TEST",
     WORLD_ACTION: "mizar-996ab4d7",
     WORLD_ENV: "staging",
+    WORLD_STAGING_VERIFICATION_TOKEN: stagingToken,
     WORLD_RP_SIGNING_KEY: testSeed,
     ATTESTATION_KEY: testSeed,
   };
@@ -71,7 +73,11 @@ beforeEach(async () => {
   } });
 });
 
-afterEach(async () => { await mf.dispose(); });
+afterEach(async () => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+  await mf.dispose();
+});
 
 describe("purpose 0x01 golden vector", () => {
   it("builds the exact 89-byte message digest and recovers the compressed event key", () => {
@@ -191,6 +197,90 @@ describe("human-check endpoints", () => {
     expect(body.rp_id).toBe("rp_FAKE_TEST");
     expect(body).toHaveProperty("nonce");
     expect(body).not.toHaveProperty("signingKeyHex");
+  });
+});
+
+describe("World verification diagnostics and staging access", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+  let errorLog: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    app = createApp({ now: () => clock, randomBytes: () => new Uint8Array(32).fill(0xa1) });
+    fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  async function prepareVerification() {
+    const { challenge, response } = await bind();
+    const { signal } = await response.json() as { signal: string };
+    const result = { ...idkit(signal), environment: env.WORLD_ENV };
+    return { signal, result, body: { eventId, eventKey, challenge, idkitResult: result } };
+  }
+
+  it.each(["staging", "production"] as const)("sends the staging token only in staging: %s", async environment => {
+    env.WORLD_ENV = environment;
+    const { result, body } = await prepareVerification();
+    fetchMock.mockResolvedValueOnce(Response.json({ ...fixture.worldResponse, environment }));
+    expect((await post("/verify", body)).status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("https://developer.world.org/api/v4/verify/rp_FAKE_TEST");
+    expect(new Headers(init.headers).get("x-staging-verification-token")).toBe(environment === "staging" ? stagingToken : null);
+    expect(JSON.parse(init.body)).toEqual(result);
+    expect(errorLog).not.toHaveBeenCalled();
+  });
+
+  it("fails closed without a staging token before calling World", async () => {
+    delete env.WORLD_STAGING_VERIFICATION_TOKEN;
+    const { body } = await prepareVerification();
+    const response = await post("/verify", body);
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "world_unavailable", reason: "staging_token_missing" });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(errorLog).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(errorLog.mock.calls)).toContain("staging_token_missing");
+    expect(JSON.stringify(errorLog.mock.calls)).not.toContain(stagingToken);
+  });
+
+  it.each([
+    [failures.environmentNotAllowed, 503, { error: "world_unavailable", reason: "environment_not_allowed" }],
+    [failures.invalidProof, 400, { error: "world_verification_failed" }],
+  ])("logs safe diagnostics for World response %j", async (failure, expectedStatus, expectedBody) => {
+    const { signal, result, body } = await prepareVerification();
+    fetchMock.mockResolvedValueOnce(Response.json(failure.body, { status: failure.status }));
+    const response = await post("/verify", body);
+    expect(response.status).toBe(expectedStatus);
+    expect(await response.json()).toEqual(expectedBody);
+    expect(errorLog).toHaveBeenCalledTimes(1);
+    const logged = JSON.stringify(errorLog.mock.calls);
+    expect(logged).toContain(String(failure.status));
+    expect(logged).toContain(failure.body.code);
+    expect(logged).toContain(failure.body.detail);
+    for (const value of [stagingToken, testSeed, eventKey, signal, result.nonce, result.responses[0].signal_hash,
+      result.responses[0].nullifier, ...result.responses[0].proof]) {
+      expect(logged).not.toContain(value);
+    }
+    const credentials = await app.fetch(new Request(`http://localhost/credentials?eventId=${eventId}`), env);
+    expect((await credentials.json() as { credentials: unknown[] }).credentials).toEqual([]);
+  });
+
+  it("redacts sensitive values echoed inside World error details", async () => {
+    const { signal, result, body } = await prepareVerification();
+    const sensitive = [stagingToken, testSeed, eventKey, signal, body.challenge, result.nonce,
+      result.responses[0].signal_hash, result.responses[0].nullifier, ...result.responses[0].proof];
+    fetchMock.mockResolvedValueOnce(Response.json({
+      ...failures.invalidProof.body,
+      detail: `Invalid proof: ${sensitive.join(" ")}`,
+      proof: result.responses[0].proof,
+      token: stagingToken,
+    }, { status: 400 }));
+    expect((await post("/verify", body)).status).toBe(400);
+    const logged = JSON.stringify(errorLog.mock.calls);
+    expect(logged).toContain("invalid_proof");
+    expect(logged).toContain("Invalid proof:");
+    expect(logged).toContain("[redacted]");
+    for (const value of sensitive) expect(logged).not.toContain(value);
   });
 });
 

@@ -32,6 +32,8 @@ The event ID is 32-byte hex; the event key is a compressed 33-byte secp256k1 pub
 
 The World result is forwarded unchanged to `POST https://developer.world.org/api/v4/verify/{rp_id}`. This implementation accepts one World ID 4.0 `proof_of_human` uniqueness response, requires a successful matching result from World, checks action and environment, then inserts into D1 with unique `(event_id, nullifier_hash)` and `(event_id, event_key)` constraints. Nullifiers are normalized as 256-bit hex before comparison and storage. A failed proof never creates a credential.
 
+In staging, verification requires `WORLD_STAGING_VERIFICATION_TOKEN`, sent only to World in the `x-staging-verification-token` header. A missing token returns HTTP 503 with `{"error":"world_unavailable","reason":"staging_token_missing"}` without contacting World. A World HTTP 403 `environment_not_allowed` returns HTTP 503 with `{"error":"world_unavailable","reason":"environment_not_allowed"}`; an invalid proof remains HTTP 400 `world_verification_failed`. The join page asks users to try later or contact the event organizer. Failed World responses log only their HTTP status, code, and redacted detail to `console.error` for `wrangler tail`; proof material and secret values are never included in client errors.
+
 Each credential contains `eventKey`, `eventKeyAddress`, `nullifierHash`, `verifiedAt` (UTC ISO-8601), `challenge`, `appSignature`, `proofDigest`, and `attestation`. `proofDigest` is SHA-256 over recursively sorted-key JSON of the complete IDKit result. The Ed25519 attestation signs raw UTF-8 `alcor/credential/v1`, one NUL byte, then recursively sorted-key JSON of the entry without `attestation`; there is no extra hash. `attestation` carries `algorithm`, `publicKey`, and `signature`. An evaluator must pin the expected service public key in its event parameters and compare it with the entry before verifying the signature. `test/fixtures/signed-credentials-v1.json` contains an exact deterministic signed `GET /credentials` response and a **public TEST seed only**. The seed must never be used for an event.
 
 ## ETHGlobal Tokyo deployment
@@ -52,7 +54,10 @@ The public key was derived from the maintainer-provided 32-byte seed. Only this 
 | `WORLD_ACTION`, `WORLD_ENV` | Plain vars in `wrangler.toml` | Public |
 | `WORLD_APP_ID`, `WORLD_RP_ID` | `wrangler secret put` from local environment | Public identifiers returned by `/config`; their values are kept out of the repository |
 | `WORLD_RP_SIGNING_KEY` | `wrangler secret put` via stdin | Secret; never log or commit |
+| `WORLD_STAGING_VERIFICATION_TOKEN` | `wrangler secret put` via stdin | Secret; sent only for staging verification; never log or commit |
 | `ATTESTATION_KEY` | `ALCOR_ATTESTATION_KEY` via stdin | Secret Ed25519 seed; never log or commit |
+
+The World staging verification window lasts at most 24 hours. Reopening it issues a new token. Update `WORLD_STAGING_VERIFICATION_TOKEN` from stdin with `pnpm exec wrangler secret put WORLD_STAGING_VERIFICATION_TOKEN` in `worker/`, using the intended account and Worker. The token must come from a protected input source, never a literal command-line argument or a committed file. Updating the secret takes effect without a separate code redeploy.
 
 Before deployment, confirm the Portal action `mizar-ccb8770a` is active for the staging app, allows the intended proof-of-human credential and one verification per human, and permits the HTTPS origin above where applicable. The mobile purpose `0x01` callback must use this same origin. Do not treat a successful local test or deployment as a real World ID verification.
 
@@ -77,7 +82,7 @@ For a newly created database, copy the returned `database_id` into `wrangler.tom
 
 ### Apply migrations, upload bindings, and deploy
 
-Run from `worker/` with the intended database ID configured. With piped stdin, the first secret upload automatically creates a draft Worker without prompting if the named Worker does not exist yet; check that the configured name is `alcor-human-check` before running it. All four bindings must succeed before the final deployment. No secret values are passed as CLI arguments or written to temporary files.
+Run from `worker/` with the intended database ID configured. With piped stdin, the first secret upload automatically creates a draft Worker without prompting if the named Worker does not exist yet; check that the configured name is `alcor-human-check` before running it. All five bindings must succeed before the final staging deployment. No secret values are passed as CLI arguments or written to temporary files.
 
 ```zsh
 (
@@ -91,6 +96,7 @@ Run from `worker/` with the intended database ID configured. With piped stdin, t
   [ -n "${WORLD_APP_ID:-}" ] && echo SET || { echo UNSET; exit 1; }
   [ -n "${WORLD_RP_ID:-}" ] && echo SET || { echo UNSET; exit 1; }
   [ -n "${WORLD_RP_SIGNING_KEY:-}" ] && echo SET || { echo UNSET; exit 1; }
+  [ -n "${WORLD_STAGING_VERIFICATION_TOKEN:-}" ] && echo SET || { echo UNSET; exit 1; }
   [ -n "${ALCOR_ATTESTATION_KEY:-}" ] && echo SET || { echo UNSET; exit 1; }
   ALCOR_ATTESTATION_KEY="$ALCOR_ATTESTATION_KEY" node --input-type=module -e '
     import { createPrivateKey, createPublicKey } from "node:crypto";
@@ -109,6 +115,7 @@ Run from `worker/` with the intended database ID configured. With piped stdin, t
   printf '%s' "$WORLD_APP_ID" | cf secret put WORLD_APP_ID
   printf '%s' "$WORLD_RP_ID" | cf secret put WORLD_RP_ID
   printf '%s' "$WORLD_RP_SIGNING_KEY" | cf secret put WORLD_RP_SIGNING_KEY
+  printf '%s' "$WORLD_STAGING_VERIFICATION_TOKEN" | cf secret put WORLD_STAGING_VERIFICATION_TOKEN
   printf '0x%s' "${ALCOR_ATTESTATION_KEY#0x}" | cf secret put ATTESTATION_KEY
   cf deploy
 )

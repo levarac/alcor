@@ -4,6 +4,10 @@
     "status": 400,
     "body": { "success": false, "code": "invalid_proof", "detail": "Invalid proof" }
   },
+  "environmentNotAllowed": {
+    "status": 403,
+    "body": { "success": false, "code": "environment_not_allowed", "detail": "Staging verification window is not open" }
+  },
   "wrongSignal": { "signal_hash": "0x0" },
   "duplicateNullifier": {
     "nullifier": "0x04e5f60000000000000000000000000000000000000000000000000000000001"
