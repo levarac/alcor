@@ -18,6 +18,8 @@ The join page keeps each pending check in `localStorage`, not `sessionStorage`, 
 
 Built during ETHGlobal Tokyo 2026 (hacking started 2026-09-25 21:00 JST). Work in progress.
 
+**Known limitation (World ID staging):** the World ID Simulator generates every World ID 4.0 staging proof from one server-side identity, whichever test identity is selected in the browser. Since [worldcoin/simulator#236](https://github.com/worldcoin/simulator/pull/236), its sidecar picks the first configured identity that can satisfy the request and ignores the selected one ([`sidecar/src/routes.rs`](https://github.com/worldcoin/simulator/blob/9fdc0724704d660893a384b1259c469ef57db583/sidecar/src/routes.rs)). Every staging proof for an action therefore carries the same nullifier, so a staging event can hold only one credential. On 2026-09-27, human checks using new Simulator identities, browsers and devices all verified at World and were then rejected with `409 credential_already_exists` for this reason. A live run with several people needs production World ID and real World App users.
+
 ## Pre-existing work
 
 This repository was created after the hackathon started, and everything in it was written during the event. It builds on pre-existing work by the same team, which is not part of this repository:
