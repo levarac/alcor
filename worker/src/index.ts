@@ -12,6 +12,8 @@ export interface Env {
   WORLD_ACTION: string;
   WORLD_ENV: "staging" | "production";
   WORLD_STAGING_VERIFICATION_TOKEN?: string;
+  /** "on" accepts World ID 3.0 (legacy orb) proofs, only while WORLD_ENV is "staging". */
+  WORLD_LEGACY_STAGING?: string;
   WORLD_RP_SIGNING_KEY?: Hex;
   ATTESTATION_KEY?: Hex;
 }
@@ -63,6 +65,16 @@ const EVENT_ID = /^0x[0-9a-fA-F]{64}$/;
 const KEY = /^0x[0-9a-fA-F]{66}$/;
 const SIGNATURE = /^0x[0-9a-fA-F]{130}$/;
 const NULLIFIER = /^0x[0-9a-fA-F]{1,64}$/;
+const LEGACY_PROOF = /^0x[0-9a-fA-F]{2,1024}$/;
+const MERKLE_ROOT = /^0x[0-9a-fA-F]{1,64}$/;
+
+// The World ID Simulator proves every 4.0 staging request with one server-side
+// identity, so a staging action yields a single nullifier. Its legacy 3.0 proofs
+// come from the browser-selected identity instead. Staging only; production
+// always requires native 4.0 proofs.
+function legacyStagingEnabled(env: Env): boolean {
+  return env.WORLD_ENV === "staging" && env.WORLD_LEGACY_STAGING === "on";
+}
 const DOMAIN = toBytes("beid/event-key-sign/v1");
 const TEN_MINUTES = 600_000;
 const API_PATHS = new Set(["/challenge", "/rp-context", "/bind", "/verify", "/credentials", "/config"]);
@@ -234,7 +246,7 @@ export function createApp(dependencies: Dependencies = {}) {
       }
       if (path === "/config" && request.method === "GET") {
         if (!normalizedEvent(url.searchParams.get("eventId"), env)) return fail("invalid_event", 400);
-        return json({ appId: env.WORLD_APP_ID, rpId: env.WORLD_RP_ID, action: env.WORLD_ACTION, environment: env.WORLD_ENV });
+        return json({ appId: env.WORLD_APP_ID, rpId: env.WORLD_RP_ID, action: env.WORLD_ACTION, environment: env.WORLD_ENV, legacy: legacyStagingEnabled(env) });
       }
       if (request.method !== "POST") return fail("not_found", 404);
       const input = await bodyOf(request);
@@ -291,13 +303,20 @@ export function createApp(dependencies: Dependencies = {}) {
         if (used) return fail("used_challenge", 409);
         const result = input.idkitResult;
         const responses = result.responses;
-        if (result.protocol_version !== "4.0" || result.action !== env.WORLD_ACTION || result.environment !== env.WORLD_ENV ||
-            !Array.isArray(responses) || responses.length !== 1 || !object(responses[0]) || responses[0].identifier !== "proof_of_human" ||
+        const legacy = result.protocol_version === "3.0" && legacyStagingEnabled(env);
+        const protocolVersion = legacy ? "3.0" : "4.0";
+        const identifier = legacy ? "orb" : "proof_of_human";
+        if (result.protocol_version !== protocolVersion || result.action !== env.WORLD_ACTION || result.environment !== env.WORLD_ENV ||
+            !Array.isArray(responses) || responses.length !== 1 || !object(responses[0]) || responses[0].identifier !== identifier ||
             typeof responses[0].signal_hash !== "string" || responses[0].signal_hash.toLowerCase() !== hashSignal(row.signal!).toLowerCase()) {
           return fail("wrong_signal_or_request", 400);
         }
         const nullifier = normalizeNullifier(responses[0].nullifier);
-        if (!nullifier || !Array.isArray(responses[0].proof)) return fail("invalid_proof_shape", 400);
+        const proofShapeValid = legacy
+          ? typeof responses[0].proof === "string" && LEGACY_PROOF.test(responses[0].proof) &&
+            typeof responses[0].merkle_root === "string" && MERKLE_ROOT.test(responses[0].merkle_root)
+          : Array.isArray(responses[0].proof);
+        if (!nullifier || !proofShapeValid) return fail("invalid_proof_shape", 400);
         if (env.WORLD_ENV === "staging" && !env.WORLD_STAGING_VERIFICATION_TOKEN) {
           console.error("World verification unavailable", { reason: "staging_token_missing" });
           return json({ error: "world_unavailable", reason: "staging_token_missing" }, 503);
@@ -314,7 +333,7 @@ export function createApp(dependencies: Dependencies = {}) {
         const world = verified.body;
         if (verified.status !== 200 || !object(world) || world.success !== true || world.action !== env.WORLD_ACTION || world.environment !== env.WORLD_ENV ||
             normalizeNullifier(world.nullifier) !== nullifier || !Array.isArray(world.results) || world.results.length !== 1 ||
-            !object(world.results[0]) || world.results[0].success !== true || world.results[0].identifier !== "proof_of_human" ||
+            !object(world.results[0]) || world.results[0].success !== true || world.results[0].identifier !== identifier ||
             normalizeNullifier(world.results[0].nullifier) !== nullifier) {
           const sensitive = [responses, result.nonce, row, env.WORLD_STAGING_VERIFICATION_TOKEN,
             env.WORLD_RP_SIGNING_KEY, env.ATTESTATION_KEY];
