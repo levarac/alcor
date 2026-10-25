@@ -151,6 +151,9 @@ function worldErrorCode(value: unknown, sensitive: unknown[]): string | null {
     diagnosticText(value, sensitive) === value ? value : null;
 }
 
+// D1 reports SQLite constraint errors with a "D1_ERROR: " prefix; accept the bare SQLite text too.
+const UNIQUE_CONFLICT = /^(?:D1_ERROR: )?UNIQUE constraint failed: credentials\./;
+
 function normalizeNullifier(value: unknown): Hex | null {
   if (typeof value !== "string" || !NULLIFIER.test(value)) return null;
   return `0x${BigInt(value).toString(16).padStart(64, "0")}` as Hex;
@@ -391,7 +394,7 @@ export function createApp(dependencies: Dependencies = {}) {
             message: String(error instanceof Error ? error.message : error).slice(0, 200),
             nullifierPrefix: nullifier.slice(0, 12),
           });
-          const uniqueConflict = error instanceof Error && error.message.startsWith("D1_ERROR: UNIQUE constraint failed: ");
+          const uniqueConflict = error instanceof Error && UNIQUE_CONFLICT.test(error.message);
           return uniqueConflict ? fail("credential_already_exists", 409) : fail("storage_unavailable", 503);
         }
         return json({ credential: entry });

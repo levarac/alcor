@@ -247,6 +247,12 @@ describe("credential insert failures", () => {
     expect(verified.status).toBe(409);
     expect(await verified.json()).toEqual({ error: "credential_already_exists" });
   });
+
+  it("keeps a uniqueness conflict reported without the D1_ERROR prefix as 409", async () => {
+    const verified = await verifyWithInsertFailure(new Error("UNIQUE constraint failed: credentials.event_id, credentials.nullifier_hash: SQLITE_CONSTRAINT"));
+    expect(verified.status).toBe(409);
+    expect(await verified.json()).toEqual({ error: "credential_already_exists" });
+  });
 });
 
 describe("World ID 4.0 local proof validation", () => {
