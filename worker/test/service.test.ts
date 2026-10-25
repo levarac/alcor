@@ -181,7 +181,9 @@ describe("human-check endpoints", () => {
     const secondBind = await post("/bind", { eventId, eventKey: secondKey, challenge: secondChallenge, appSignature: secondSignature });
     expect(secondBind.status).toBe(200);
     const secondSignal = (await secondBind.json() as { signal: string }).signal;
-    expect((await post("/verify", { eventId, eventKey: secondKey, challenge: secondChallenge, idkitResult: idkit(secondSignal, failures.duplicateNullifier) })).status).toBe(409);
+    const duplicate = await post("/verify", { eventId, eventKey: secondKey, challenge: secondChallenge, idkitResult: idkit(secondSignal, failures.duplicateNullifier) });
+    expect(duplicate.status).toBe(409);
+    expect(await duplicate.json()).toEqual({ error: "credential_already_exists" });
     clock += failures.expiredChallenge.advanceMs;
     expect((await post("/verify", { eventId, eventKey, challenge, idkitResult: idkit(signal) })).status).toBe(410);
   });
@@ -197,6 +199,53 @@ describe("human-check endpoints", () => {
     expect(body.rp_id).toBe("rp_FAKE_TEST");
     expect(body).toHaveProperty("nonce");
     expect(body).not.toHaveProperty("signingKeyHex");
+  });
+});
+
+describe("credential insert failures", () => {
+  async function verifyWithInsertFailure(error: unknown) {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const { challenge, response } = await bind();
+    const { signal } = await response.json() as { signal: string };
+    const prepare = env.DB.prepare.bind(env.DB);
+    const insert = vi.fn().mockRejectedValue(error);
+    env.DB = {
+      prepare(sql: string) {
+        if (sql.startsWith("INSERT INTO credentials ")) {
+          return { bind: () => ({ run: insert }) } as unknown as D1PreparedStatement;
+        }
+        return prepare(sql);
+      },
+    } as D1Database;
+    const verified = await post("/verify", { eventId, eventKey, challenge, idkitResult: idkit(signal) });
+    expect(verifyMock).toHaveBeenCalledOnce();
+    expect(insert).toHaveBeenCalledOnce();
+    return verified;
+  }
+
+  it.each([
+    ["busy database", new Error("D1_ERROR: database is locked: SQLITE_BUSY")],
+    ["I/O failure", new Error("D1_ERROR: disk I/O error: SQLITE_IOERR")],
+    ["NOT NULL constraint", new Error("D1_ERROR: NOT NULL constraint failed: credentials.attestation: SQLITE_CONSTRAINT")],
+    ["CHECK constraint", new Error("D1_ERROR: CHECK constraint failed: credentials: SQLITE_CONSTRAINT")],
+    ["unrelated message mentioning uniqueness", new Error("D1_ERROR: backend unavailable (UNIQUE constraint failed: credentials.event_key)")],
+    ["non-Error rejection", "storage unavailable"],
+  ])("returns retryable 503 for %s", async (_name, error) => {
+    const verified = await verifyWithInsertFailure(error);
+    expect(verified.status).toBe(503);
+    expect(await verified.json()).toEqual({ error: "storage_unavailable" });
+    const list = await app.fetch(new Request(`http://localhost/credentials?eventId=${eventId}`), env);
+    expect((await list.json() as { credentials: unknown[] }).credentials).toEqual([]);
+  });
+
+  it.each([
+    "credentials.event_id, credentials.nullifier_hash",
+    "credentials.event_id, credentials.event_key",
+    "credentials.challenge",
+  ])("keeps D1 uniqueness conflicts on %s as 409", async (columns) => {
+    const verified = await verifyWithInsertFailure(new Error(`D1_ERROR: UNIQUE constraint failed: ${columns}: SQLITE_CONSTRAINT`));
+    expect(verified.status).toBe(409);
+    expect(await verified.json()).toEqual({ error: "credential_already_exists" });
   });
 });
 
