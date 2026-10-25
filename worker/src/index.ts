@@ -391,7 +391,8 @@ export function createApp(dependencies: Dependencies = {}) {
             message: String(error instanceof Error ? error.message : error).slice(0, 200),
             nullifierPrefix: nullifier.slice(0, 12),
           });
-          return fail("credential_already_exists", 409);
+          const uniqueConflict = error instanceof Error && error.message.startsWith("D1_ERROR: UNIQUE constraint failed: ");
+          return uniqueConflict ? fail("credential_already_exists", 409) : fail("storage_unavailable", 503);
         }
         return json({ credential: entry });
       }
