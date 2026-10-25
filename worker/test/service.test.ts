@@ -200,6 +200,34 @@ describe("human-check endpoints", () => {
   });
 });
 
+describe("World ID 4.0 local proof validation", () => {
+  it.each([
+    { name: "empty proof", overrides: { proof: [] } },
+    { name: "empty proof and zero nullifier", overrides: { proof: [], nullifier: "0x0" } },
+    { name: "zero nullifier", overrides: { nullifier: "0x0" } },
+    { name: "padded zero nullifier", overrides: { nullifier: `0x${"0".repeat(64)}` } },
+    { name: "missing nullifier", overrides: { nullifier: undefined } },
+    { name: "null nullifier", overrides: { nullifier: null } },
+    { name: "numeric nullifier", overrides: { nullifier: 1 } },
+    { name: "decimal nullifier", overrides: { nullifier: "1" } },
+    { name: "empty hex nullifier", overrides: { nullifier: "0x" } },
+    { name: "non-hex nullifier", overrides: { nullifier: "0xgg" } },
+    { name: "oversized nullifier", overrides: { nullifier: `0x1${"0".repeat(64)}` } },
+  ])("rejects $name before any outbound World fetch", async ({ overrides }) => {
+    const fetchMock = vi.fn(async () => Response.json(fixture.worldResponse));
+    vi.stubGlobal("fetch", fetchMock);
+    app = createApp({ now: () => clock, randomBytes: () => new Uint8Array(32).fill(0xa1) });
+    const { challenge, response } = await bind();
+    const { signal } = await response.json() as { signal: string };
+
+    const verified = await post("/verify", { eventId, eventKey, challenge, idkitResult: idkit(signal, overrides) });
+
+    expect.soft(fetchMock).not.toHaveBeenCalled();
+    expect.soft(verified.status).toBe(400);
+    expect.soft(await verified.json()).toEqual({ error: "invalid_proof_shape" });
+  });
+});
+
 describe("World ID 3.0 legacy staging mode", () => {
   const legacyNullifier = "0x0a1b2c0000000000000000000000000000000000000000000000000000000003";
 
