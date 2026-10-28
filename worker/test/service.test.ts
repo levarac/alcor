@@ -181,7 +181,9 @@ describe("human-check endpoints", () => {
     const secondBind = await post("/bind", { eventId, eventKey: secondKey, challenge: secondChallenge, appSignature: secondSignature });
     expect(secondBind.status).toBe(200);
     const secondSignal = (await secondBind.json() as { signal: string }).signal;
-    expect((await post("/verify", { eventId, eventKey: secondKey, challenge: secondChallenge, idkitResult: idkit(secondSignal, failures.duplicateNullifier) })).status).toBe(409);
+    const duplicate = await post("/verify", { eventId, eventKey: secondKey, challenge: secondChallenge, idkitResult: idkit(secondSignal, failures.duplicateNullifier) });
+    expect(duplicate.status).toBe(409);
+    expect(await duplicate.json()).toEqual({ error: "credential_already_exists" });
     clock += failures.expiredChallenge.advanceMs;
     expect((await post("/verify", { eventId, eventKey, challenge, idkitResult: idkit(signal) })).status).toBe(410);
   });
@@ -197,6 +199,87 @@ describe("human-check endpoints", () => {
     expect(body.rp_id).toBe("rp_FAKE_TEST");
     expect(body).toHaveProperty("nonce");
     expect(body).not.toHaveProperty("signingKeyHex");
+  });
+});
+
+describe("credential insert failures", () => {
+  async function verifyWithInsertFailure(error: unknown) {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const { challenge, response } = await bind();
+    const { signal } = await response.json() as { signal: string };
+    const prepare = env.DB.prepare.bind(env.DB);
+    const insert = vi.fn().mockRejectedValue(error);
+    env.DB = {
+      prepare(sql: string) {
+        if (sql.startsWith("INSERT INTO credentials ")) {
+          return { bind: () => ({ run: insert }) } as unknown as D1PreparedStatement;
+        }
+        return prepare(sql);
+      },
+    } as D1Database;
+    const verified = await post("/verify", { eventId, eventKey, challenge, idkitResult: idkit(signal) });
+    expect(verifyMock).toHaveBeenCalledOnce();
+    expect(insert).toHaveBeenCalledOnce();
+    return verified;
+  }
+
+  it.each([
+    ["busy database", new Error("D1_ERROR: database is locked: SQLITE_BUSY")],
+    ["I/O failure", new Error("D1_ERROR: disk I/O error: SQLITE_IOERR")],
+    ["NOT NULL constraint", new Error("D1_ERROR: NOT NULL constraint failed: credentials.attestation: SQLITE_CONSTRAINT")],
+    ["CHECK constraint", new Error("D1_ERROR: CHECK constraint failed: credentials: SQLITE_CONSTRAINT")],
+    ["unrelated message mentioning uniqueness", new Error("D1_ERROR: backend unavailable (UNIQUE constraint failed: credentials.event_key)")],
+    ["non-Error rejection", "storage unavailable"],
+  ])("returns retryable 503 for %s", async (_name, error) => {
+    const verified = await verifyWithInsertFailure(error);
+    expect(verified.status).toBe(503);
+    expect(await verified.json()).toEqual({ error: "storage_unavailable" });
+    const list = await app.fetch(new Request(`http://localhost/credentials?eventId=${eventId}`), env);
+    expect((await list.json() as { credentials: unknown[] }).credentials).toEqual([]);
+  });
+
+  it.each([
+    "credentials.event_id, credentials.nullifier_hash",
+    "credentials.event_id, credentials.event_key",
+    "credentials.challenge",
+  ])("keeps D1 uniqueness conflicts on %s as 409", async (columns) => {
+    const verified = await verifyWithInsertFailure(new Error(`D1_ERROR: UNIQUE constraint failed: ${columns}: SQLITE_CONSTRAINT`));
+    expect(verified.status).toBe(409);
+    expect(await verified.json()).toEqual({ error: "credential_already_exists" });
+  });
+
+  it("keeps a uniqueness conflict reported without the D1_ERROR prefix as 409", async () => {
+    const verified = await verifyWithInsertFailure(new Error("UNIQUE constraint failed: credentials.event_id, credentials.nullifier_hash: SQLITE_CONSTRAINT"));
+    expect(verified.status).toBe(409);
+    expect(await verified.json()).toEqual({ error: "credential_already_exists" });
+  });
+});
+
+describe("World ID 4.0 local proof validation", () => {
+  it.each([
+    { name: "empty proof", overrides: { proof: [] } },
+    { name: "empty proof and zero nullifier", overrides: { proof: [], nullifier: "0x0" } },
+    { name: "zero nullifier", overrides: { nullifier: "0x0" } },
+    { name: "padded zero nullifier", overrides: { nullifier: `0x${"0".repeat(64)}` } },
+    { name: "missing nullifier", overrides: { nullifier: undefined } },
+    { name: "null nullifier", overrides: { nullifier: null } },
+    { name: "numeric nullifier", overrides: { nullifier: 1 } },
+    { name: "decimal nullifier", overrides: { nullifier: "1" } },
+    { name: "empty hex nullifier", overrides: { nullifier: "0x" } },
+    { name: "non-hex nullifier", overrides: { nullifier: "0xgg" } },
+    { name: "oversized nullifier", overrides: { nullifier: `0x1${"0".repeat(64)}` } },
+  ])("rejects $name before any outbound World fetch", async ({ overrides }) => {
+    const fetchMock = vi.fn(async () => Response.json(fixture.worldResponse));
+    vi.stubGlobal("fetch", fetchMock);
+    app = createApp({ now: () => clock, randomBytes: () => new Uint8Array(32).fill(0xa1) });
+    const { challenge, response } = await bind();
+    const { signal } = await response.json() as { signal: string };
+
+    const verified = await post("/verify", { eventId, eventKey, challenge, idkitResult: idkit(signal, overrides) });
+
+    expect.soft(fetchMock).not.toHaveBeenCalled();
+    expect.soft(verified.status).toBe(400);
+    expect.soft(await verified.json()).toEqual({ error: "invalid_proof_shape" });
   });
 });
 

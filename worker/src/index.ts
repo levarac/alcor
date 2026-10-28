@@ -151,6 +151,9 @@ function worldErrorCode(value: unknown, sensitive: unknown[]): string | null {
     diagnosticText(value, sensitive) === value ? value : null;
 }
 
+// D1 reports SQLite constraint errors with a "D1_ERROR: " prefix; accept the bare SQLite text too.
+const UNIQUE_CONFLICT = /^(?:D1_ERROR: )?UNIQUE constraint failed: credentials\./;
+
 function normalizeNullifier(value: unknown): Hex | null {
   if (typeof value !== "string" || !NULLIFIER.test(value)) return null;
   return `0x${BigInt(value).toString(16).padStart(64, "0")}` as Hex;
@@ -315,8 +318,8 @@ export function createApp(dependencies: Dependencies = {}) {
         const proofShapeValid = legacy
           ? typeof responses[0].proof === "string" && LEGACY_PROOF.test(responses[0].proof) &&
             typeof responses[0].merkle_root === "string" && MERKLE_ROOT.test(responses[0].merkle_root)
-          : Array.isArray(responses[0].proof);
-        if (!nullifier || !proofShapeValid) return fail("invalid_proof_shape", 400);
+          : Array.isArray(responses[0].proof) && responses[0].proof.length > 0;
+        if (!nullifier || (!legacy && BigInt(nullifier) === 0n) || !proofShapeValid) return fail("invalid_proof_shape", 400);
         if (env.WORLD_ENV === "staging" && !env.WORLD_STAGING_VERIFICATION_TOKEN) {
           console.error("World verification unavailable", { reason: "staging_token_missing" });
           return json({ error: "world_unavailable", reason: "staging_token_missing" }, 503);
@@ -391,7 +394,8 @@ export function createApp(dependencies: Dependencies = {}) {
             message: String(error instanceof Error ? error.message : error).slice(0, 200),
             nullifierPrefix: nullifier.slice(0, 12),
           });
-          return fail("credential_already_exists", 409);
+          const uniqueConflict = error instanceof Error && UNIQUE_CONFLICT.test(error.message);
+          return uniqueConflict ? fail("credential_already_exists", 409) : fail("storage_unavailable", 503);
         }
         return json({ credential: entry });
       }
